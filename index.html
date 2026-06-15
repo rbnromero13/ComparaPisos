@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#0F2744">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pisos">
+<title>Checklist Pisos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        navy: { 900: '#0F2744', 800: '#1a3a5c', 700: '#254d78', 600: '#2e6098' },
+        gold: { 400: '#F5C842', 300: '#f7d46a', 500: '#d4a820' },
+        slate2: '#F0F4F8'
+      },
+      fontFamily: { sans: ['Inter', 'sans-serif'] }
+    }
+  }
+}
+</script>
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Inter', sans-serif; background: #F0F4F8; overscroll-behavior: none; }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 16px); }
+
+  /* Status buttons */
+  .btn-status { transition: all .15s ease; transform: scale(1); }
+  .btn-status:active { transform: scale(.88); }
+  .btn-ok.active    { background: #16a34a; color: white; border-color: #16a34a; }
+  .btn-bad.active   { background: #dc2626; color: white; border-color: #dc2626; }
+  .btn-pend.active  { background: #d97706; color: white; border-color: #d97706; }
+
+  /* Note expand */
+  .note-area { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
+  .note-area.open   { max-height: 200px; }
+
+  /* Score ring */
+  .score-ring { transition: stroke-dashoffset .6s ease; }
+
+  /* Tab bar active */
+  .tab-btn { transition: color .15s; }
+  .tab-btn.active { color: #F5C842; }
+  .tab-btn.active .tab-dot { opacity: 1; }
+  .tab-dot { opacity: 0; transition: opacity .15s; }
+
+  /* Page transitions */
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* Card hover */
+  .piso-card { transition: box-shadow .15s, transform .15s; }
+  .piso-card:active { transform: scale(.98); }
+
+  /* Accordion */
+  .section-body { max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+  .section-body.open { max-height: 9999px; }
+  .chevron { transition: transform .25s; }
+  .chevron.open { transform: rotate(180deg); }
+
+  /* Progress bar */
+  .prog-bar { transition: width .4s ease; }
+
+  /* Comparison table sticky */
+  .comp-header { position: sticky; top: 0; z-index: 10; }
+
+  /* Energy rating buttons */
+  .energy-btn { transition: all .15s ease; transform: scale(1); font-weight: 800; letter-spacing: .02em; }
+  .energy-btn:active { transform: scale(.88); }
+  .energy-btn.sel { color: white; border-color: transparent; }
+
+  /* PDF print styles */
+  @media print {
+    .no-print { display: none !important; }
+    body { background: white; }
+    .print-section { break-inside: avoid; }
+  }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- =================== APP SHELL =================== -->
+<div id="app" class="max-w-lg mx-auto min-h-screen flex flex-col relative">
+
+  <!-- TOP BAR -->
+  <header class="bg-navy-900 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-20 no-print shadow-lg">
+    <div class="flex items-center gap-2">
+      <span class="text-gold-400 text-xl">🏠</span>
+      <span class="font-bold text-base tracking-tight">Checklist Pisos</span>
+    </div>
+    <div id="header-actions" class="flex items-center gap-2"></div>
+  </header>
+
+  <!-- PAGES -->
+  <main class="flex-1 overflow-y-auto pb-24" id="main-content">
+
+    <!-- ===== PAGE: PISOS LIST ===== -->
+    <div id="page-pisos" class="page active px-4 pt-5">
+      <!-- Empty state -->
+      <div id="empty-state" class="hidden flex-col items-center justify-center pt-20 text-center">
+        <div class="text-6xl mb-4">🏘️</div>
+        <p class="text-navy-800 font-semibold text-lg">Aún no tienes pisos</p>
+        <p class="text-gray-500 text-sm mt-1">Añade tu primer piso para empezar</p>
+      </div>
+      <div id="pisos-list" class="space-y-3"></div>
+      <button onclick="showNewPisoModal()" class="mt-4 w-full bg-navy-900 text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform shadow-md no-print">
+        <span class="text-gold-400 text-lg">+</span> Añadir piso
+      </button>
+    </div>
+
+    <!-- ===== PAGE: CHECKLIST ===== -->
+    <div id="page-checklist" class="page px-4 pt-4">
+      <div id="checklist-empty" class="hidden text-center pt-20">
+        <p class="text-gray-500">Selecciona un piso para ver su checklist</p>
+      </div>
+      <div id="checklist-content"></div>
+    </div>
+
+    <!-- ===== PAGE: COMPARATIVA ===== -->
+    <div id="page-comparativa" class="page px-4 pt-4">
+      <div id="comp-empty" class="text-center pt-20">
+        <div class="text-5xl mb-3">📊</div>
+        <p class="text-gray-500 text-sm">Añade al menos 2 pisos para comparar</p>
+      </div>
+      <div id="comp-content" class="hidden"></div>
+    </div>
+
+  </main>
+
+  <!-- BOTTOM TAB BAR -->
+  <nav class="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-navy-900 border-t border-navy-800 z-20 no-print safe-bottom">
+    <div class="flex items-center">
+      <button onclick="switchPage('pisos')" class="tab-btn active flex-1 flex flex-col items-center py-2.5 gap-0.5" id="tab-pisos">
+        <span class="text-xl">🏘️</span>
+        <span class="text-xs font-medium text-gray-400 tab-label">Mis pisos</span>
+        <span class="tab-dot w-1 h-1 rounded-full bg-gold-400"></span>
+      </button>
+      <button onclick="switchPage('checklist')" class="tab-btn flex-1 flex flex-col items-center py-2.5 gap-0.5" id="tab-checklist">
+        <span class="text-xl">✅</span>
+        <span class="text-xs font-medium text-gray-400 tab-label">Checklist</span>
+        <span class="tab-dot w-1 h-1 rounded-full bg-gold-400"></span>
+      </button>
+      <button onclick="switchPage('comparativa')" class="tab-btn flex-1 flex flex-col items-center py-2.5 gap-0.5" id="tab-comparativa">
+        <span class="text-xl">📊</span>
+        <span class="text-xs font-medium text-gray-400 tab-label">Comparar</span>
+        <span class="tab-dot w-1 h-1 rounded-full bg-gold-400"></span>
+      </button>
+    </div>
+  </nav>
+
+</div>
+
+<!-- ===== MODAL: NUEVO PISO ===== -->
+<div id="modal-piso" class="fixed inset-0 z-50 hidden items-end justify-center bg-black/50 backdrop-blur-sm no-print">
+  <div class="bg-white rounded-t-2xl w-full max-w-lg p-6 pb-8 shadow-2xl">
+    <h2 class="font-bold text-navy-900 text-lg mb-4" id="modal-title">Nuevo piso</h2>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Dirección *</label>
+        <input id="input-direccion" type="text" placeholder="Calle, número, piso..." class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Precio (€)</label>
+          <input id="input-precio" type="number" placeholder="250000" class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">m²</label>
+          <input id="input-metros" type="number" placeholder="75" class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Habitaciones</label>
+          <input id="input-habitaciones" type="number" placeholder="3" class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700">
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Año construcción</label>
+          <input id="input-anyo" type="number" placeholder="1960" class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700">
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notas generales</label>
+        <textarea id="input-notas" rows="2" placeholder="Primera impresión, observaciones..." class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700 resize-none"></textarea>
+      </div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm active:scale-95 transition-transform">Cancelar</button>
+      <button onclick="savePiso()" class="flex-1 py-3 rounded-xl bg-navy-900 text-white font-semibold text-sm active:scale-95 transition-transform">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: ALUMINOSIS INFO ===== -->
+<div id="modal-aluminosis" class="fixed inset-0 z-50 hidden items-end justify-center bg-black/50 backdrop-blur-sm no-print">
+  <div class="bg-white rounded-t-2xl w-full max-w-lg p-6 pb-8 shadow-2xl max-h-[85vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-bold text-navy-900 text-lg">⚠️ Indicios de aluminosis</h2>
+      <button onclick="closeAluminosisModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold">✕</button>
+    </div>
+    <p class="text-sm text-gray-600 mb-4">El cemento aluminoso (CA) fue muy usado en España entre 1950–1975. Con el tiempo se convierte en una forma más porosa y débil. Señales a buscar en la visita:</p>
+    <div class="space-y-2.5">
+      <div class="flex gap-3 p-3 bg-red-50 rounded-xl">
+        <span class="text-lg flex-shrink-0">🔍</span>
+        <div><p class="text-sm font-semibold text-red-900">Manchas marrón-ocre o amarillentas en el techo</p><p class="text-xs text-red-700 mt-0.5">Especialmente en viguetas y forjado, incluso sin humedad aparente</p></div>
+      </div>
+      <div class="flex gap-3 p-3 bg-red-50 rounded-xl">
+        <span class="text-lg flex-shrink-0">💧</span>
+        <div><p class="text-sm font-semibold text-red-900">Eflorescencias blancas o sales en viguetas</p><p class="text-xs text-red-700 mt-0.5">Depósitos blancos de sales que afloran en la superficie del hormigón</p></div>
+      </div>
+      <div class="flex gap-3 p-3 bg-red-50 rounded-xl">
+        <span class="text-lg flex-shrink-0">🏗️</span>
+        <div><p class="text-sm font-semibold text-red-900">Viguetas de hormigón de color marrón oscuro</p><p class="text-xs text-red-700 mt-0.5">El CA sano es gris; si es marrón oscuro puede estar carbonatado</p></div>
+      </div>
+      <div class="flex gap-3 p-3 bg-amber-50 rounded-xl">
+        <span class="text-lg flex-shrink-0">📄</span>
+        <div><p class="text-sm font-semibold text-amber-900">Pedir el ITE y preguntar explícitamente</p><p class="text-xs text-amber-700 mt-0.5">La ITE debe indicar si hay aluminosis. Si el informe es antiguo, exige uno nuevo</p></div>
+      </div>
+      <div class="flex gap-3 p-3 bg-amber-50 rounded-xl">
+        <span class="text-lg flex-shrink-0">🔬</span>
+        <div><p class="text-sm font-semibold text-amber-900">Solicitar cata o análisis de laboratorio</p><p class="text-xs text-amber-700 mt-0.5">Si hay dudas, un técnico puede tomar muestras del forjado para analizarlas</p></div>
+      </div>
+      <div class="flex gap-3 p-3 bg-blue-50 rounded-xl">
+        <span class="text-lg flex-shrink-0">📐</span>
+        <div><p class="text-sm font-semibold text-blue-900">Flechas o deformaciones en el forjado</p><p class="text-xs text-blue-700 mt-0.5">Techos que no son completamente planos pueden indicar pérdida de resistencia</p></div>
+      </div>
+      <div class="flex gap-3 p-3 bg-blue-50 rounded-xl">
+        <span class="text-lg flex-shrink-0">💸</span>
+        <div><p class="text-sm font-semibold text-blue-900">Coste de rehabilitación muy elevado</p><p class="text-xs text-blue-700 mt-0.5">Puede suponer 300–600 €/m² o incluso el derribo del edificio. Negociar precio a la baja o descartar</p></div>
+      </div>
+    </div>
+    <button onclick="closeAluminosisModal()" class="mt-5 w-full py-3 rounded-xl bg-navy-900 text-white font-semibold text-sm">Entendido</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: CONFIRMAR BORRAR ===== -->
+<div id="modal-delete" class="fixed inset-0 z-50 hidden items-end justify-center bg-black/50 backdrop-blur-sm no-print">
+  <div class="bg-white rounded-t-2xl w-full max-w-lg p-6 pb-8 shadow-2xl">
+    <h2 class="font-bold text-red-700 text-lg mb-2">¿Eliminar este piso?</h2>
+    <p class="text-gray-500 text-sm mb-5">Se borrarán todos los datos del checklist. Esta acción no se puede deshacer.</p>
+    <div class="flex gap-3">
+      <button onclick="closeDeleteModal()" class="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm">Cancelar</button>
+      <button onclick="confirmDelete()" class="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold text-sm">Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DATA
+// ============================================================
+const CHECKLIST = [
+  {
+    id: 'documentacion', icon: '📋', title: 'Documentación previa',
+    subtitle: 'Pedir antes de visitar',
+    items: [
+      { id: 'd1', label: 'Nota simple del Registro de la Propiedad', hint: 'Confirma propietario, cargas e hipotecas' },
+      { id: 'd2', label: 'Valor de referencia Catastro', hint: 'sedecatastro.gob.es — base para calcular impuestos' },
+      { id: 'd3', label: 'Certificado de eficiencia energética', hint: 'Letra A–G; F o G = facturas altas', type: 'energy' },
+      { id: 'd4', label: 'ITE (Inspección Técnica del Edificio)', hint: 'Obligatoria en edificios >45 años' },
+      { id: 'd5', label: 'Últimas actas de la comunidad', hint: 'Detecta derramas o conflictos' },
+      { id: 'd6', label: 'Certificado de deudas con la comunidad', hint: 'Las deudas pasan al comprador' },
+      { id: 'd7', label: 'Recibos del IBI al corriente', hint: 'Sin deuda con Hacienda local' },
+      { id: 'd8', label: 'Cédula de habitabilidad vigente', hint: 'Necesaria para escriturar y para hipoteca' },
+    ]
+  },
+  {
+    id: 'edificio', icon: '🏗️', title: 'Estado del edificio',
+    subtitle: 'Especialmente importante en edificios antiguos',
+    items: [
+      { id: 'e1', label: 'Fachada: sin grietas ni humedades', hint: '' },
+      { id: 'e2', label: 'Cubierta / tejado en buen estado', hint: '' },
+      { id: 'e3', label: 'Ascensor: existencia y estado', hint: 'Si no hay, ¿cabe instalarlo? ¿Derrama prevista?' },
+      { id: 'e4', label: 'Zonas comunes limpias y mantenidas', hint: '' },
+      { id: 'e5', label: 'Sin indicios de aluminosis', hint: 'Común en edificios de 1950–1975', type: 'aluminosis' },
+      { id: 'e6', label: 'Estructura sin grietas visibles', hint: '' },
+      { id: 'e7', label: 'Instalación eléctrica del edificio actualizada', hint: '' },
+      { id: 'e8', label: 'Fontanería común en buen estado', hint: 'Tuberías de plomo = cambio obligatorio' },
+    ]
+  },
+  {
+    id: 'interior', icon: '🛋️', title: 'Interior del piso',
+    subtitle: 'Humedades, espacios y acabados',
+    items: [
+      { id: 'i1', label: 'Sin humedades en techos y paredes', hint: 'Revisar baños, cocina y esquinas exteriores' },
+      { id: 'i2', label: 'Sin grietas o fisuras', hint: '' },
+      { id: 'i3', label: 'Ventanas con doble acristalamiento', hint: 'Simple = frío, ruido y gasto energético' },
+      { id: 'i4', label: 'Buena orientación y luz natural', hint: 'Sur = más luz; revisar en distintas horas' },
+      { id: 'i5', label: 'Techos mínimo 2,5 m de altura', hint: '' },
+      { id: 'i6', label: 'Distribución funcional', hint: 'Comprobar metros útiles reales vs. escritura' },
+      { id: 'i7', label: 'Buen estado del suelo', hint: 'Coste de cambio si está deteriorado' },
+      { id: 'i8', label: 'Armarios / trastero / garaje incluidos', hint: '' },
+    ]
+  },
+  {
+    id: 'instalaciones', icon: '⚡', title: 'Instalaciones',
+    subtitle: 'Electricidad, fontanería, calefacción',
+    items: [
+      { id: 'in1', label: 'Cuadro eléctrico actualizado', hint: 'Magnetotérmico + diferencial' },
+      { id: 'in2', label: 'Potencia eléctrica suficiente', hint: 'Mínimo 3,45 kW; recomendable 5,75 kW' },
+      { id: 'in3', label: 'Presión de agua correcta', hint: 'Abrir grifos y ducha al máximo' },
+      { id: 'in4', label: 'Tuberías de cobre o PVC (no plomo)', hint: '' },
+      { id: 'in5', label: 'Calefacción: tipo y estado', hint: 'Caldera >15 años = posible sustitución' },
+      { id: 'in6', label: 'Agua caliente: llega rápido al grifo', hint: '' },
+      { id: 'in7', label: 'Ventilación en baños y cocina', hint: 'Extracción mecánica o ventana exterior' },
+      { id: 'in8', label: 'Fibra óptica disponible', hint: '' },
+      { id: 'in9', label: 'Portero automático / videoportero', hint: '' },
+    ]
+  },
+  {
+    id: 'entorno', icon: '🌆', title: 'Entorno y ruidos',
+    subtitle: 'Visitar en distintos horarios',
+    items: [
+      { id: 'n1', label: 'Nivel de ruido exterior aceptable', hint: 'Calle, bares, tráfico — visitar tarde/noche' },
+      { id: 'n2', label: 'Poco ruido de vecinos', hint: 'Paredes, suelo, escalera' },
+      { id: 'n3', label: 'Luz natural en todas las habitaciones', hint: '' },
+      { id: 'n4', label: 'Buenas vistas y privacidad', hint: '' },
+      { id: 'n5', label: 'Servicios cercanos', hint: 'Metro, bus, supermercado, farmacia' },
+      { id: 'n6', label: 'Colegio / sanidad si hay niños', hint: '' },
+      { id: 'n7', label: 'Aparcamiento en la zona', hint: '' },
+      { id: 'n8', label: 'Sin planes urbanísticos negativos', hint: 'Consultar Ayuntamiento' },
+    ]
+  },
+  {
+    id: 'economico', icon: '💰', title: 'Aspectos económicos',
+    subtitle: 'El precio real de la compra',
+    items: [
+      { id: 'ec1', label: 'Precio/m² comparado con la zona', hint: 'Idealista, Fotocasa, Tinsa' },
+      { id: 'ec2', label: 'Tasación profesional realizada', hint: '200–400 €; imprescindible con hipoteca' },
+      { id: 'ec3', label: 'ITP calculado (6–10% según CC.AA.)', hint: '' },
+      { id: 'ec4', label: 'Notaría + Registro previstos (~2.000 €)', hint: '' },
+      { id: 'ec5', label: 'Cuota mensual de comunidad', hint: '' },
+      { id: 'ec6', label: 'Sin derrama pendiente o aprobada', hint: 'Si hay, ¿quién la paga?' },
+      { id: 'ec7', label: 'IBI anual conocido', hint: '' },
+      { id: 'ec8', label: 'Reserva para reformas prevista', hint: 'Edificio de 1960: prever 10.000–20.000 €' },
+    ]
+  },
+  {
+    id: 'legal', icon: '⚖️', title: 'Aspectos legales',
+    subtitle: 'Nota simple, cargas y contratos',
+    items: [
+      { id: 'l1', label: 'Vendedor es único titular (nota simple)', hint: '' },
+      { id: 'l2', label: 'Sin hipoteca pendiente (o se cancela en escritura)', hint: '' },
+      { id: 'l3', label: 'Sin embargos ni cargas', hint: '' },
+      { id: 'l4', label: 'Estatutos sin restricciones problemáticas', hint: 'Alquiler turístico, mascotas, obras…' },
+      { id: 'l5', label: 'Contrato de arras revisado por abogado', hint: 'Arras penitenciales: pierdes el doble si cancelas' },
+      { id: 'l6', label: 'Derecho de tanteo ejercido o renunciado', hint: 'Si eres inquilino' },
+      { id: 'l7', label: 'Licencia de primera ocupación o equivalente', hint: '' },
+    ]
+  }
+];
+
+const TOTAL_ITEMS = CHECKLIST.reduce((s, sec) => s + sec.items.length, 0);
+
+// ============================================================
+// STATE
+// ============================================================
+let pisos = JSON.parse(localStorage.getItem('pisos') || '[]');
+let activePisoId = localStorage.getItem('activePisoId') || null;
+let currentPage = 'pisos';
+let editingPisoId = null;
+let deletingPisoId = null;
+
+// ============================================================
+// PERSISTENCE
+// ============================================================
+function save() {
+  localStorage.setItem('pisos', JSON.stringify(pisos));
+  localStorage.setItem('activePisoId', activePisoId || '');
+}
+
+function getPiso(id) { return pisos.find(p => p.id === id); }
+
+function getActivePiso() { return getPiso(activePisoId); }
+
+// ============================================================
+// PAGE NAVIGATION
+// ============================================================
+function switchPage(name) {
+  currentPage = name;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  updateHeaderActions();
+  if (name === 'checklist') renderChecklist();
+  if (name === 'comparativa') renderComparativa();
+  if (name === 'pisos') renderPisosList();
+}
+
+function updateHeaderActions() {
+  const el = document.getElementById('header-actions');
+  if (currentPage === 'checklist' && activePisoId) {
+    el.innerHTML = `
+      <button onclick="shareReport()" class="bg-gold-400 text-navy-900 font-semibold text-xs px-3 py-1.5 rounded-lg active:scale-95 transition-transform">Exportar</button>
+    `;
+  } else {
+    el.innerHTML = '';
+  }
+}
+
+// ============================================================
+// PISOS LIST
+// ============================================================
+function renderPisosList() {
+  const list = document.getElementById('pisos-list');
+  const empty = document.getElementById('empty-state');
+  if (pisos.length === 0) {
+    empty.classList.remove('hidden'); empty.classList.add('flex');
+    list.innerHTML = '';
+    return;
+  }
+  empty.classList.add('hidden'); empty.classList.remove('flex');
+
+  list.innerHTML = pisos.map(p => {
+    const stats = getPisoStats(p);
+    const pct = Math.round((stats.answered / TOTAL_ITEMS) * 100);
+    const score = calcScore(p);
+    const isActive = p.id === activePisoId;
+    const precioM2 = p.precio && p.metros ? Math.round(p.precio / p.metros) : null;
+
+    return `
+    <div class="piso-card bg-white rounded-2xl shadow-sm border-2 ${isActive ? 'border-navy-700' : 'border-transparent'} overflow-hidden">
+      <div class="p-4 cursor-pointer" onclick="selectPiso('${p.id}')">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              ${isActive ? '<span class="text-xs bg-gold-400 text-navy-900 font-bold px-2 py-0.5 rounded-full">ACTIVO</span>' : ''}
+              <p class="font-bold text-navy-900 text-sm truncate">${p.direccion}</p>
+            </div>
+            <div class="flex items-center gap-3 mt-1 text-xs text-gray-500">
+              ${p.precio ? `<span class="font-semibold text-navy-800">€${Number(p.precio).toLocaleString('es')}</span>` : ''}
+              ${p.metros ? `<span>${p.metros} m²</span>` : ''}
+              ${precioM2 ? `<span class="bg-gray-100 rounded px-1.5 py-0.5 font-mono">${precioM2.toLocaleString('es')} €/m²</span>` : ''}
+              ${p.habitaciones ? `<span>${p.habitaciones} hab.</span>` : ''}
+            </div>
+          </div>
+          <!-- Score circle -->
+          <div class="relative flex-shrink-0 w-12 h-12">
+            <svg viewBox="0 0 36 36" class="w-12 h-12 -rotate-90">
+              <circle cx="18" cy="18" r="15.5" fill="none" stroke="#e5e7eb" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15.5" fill="none" stroke="${score >= 7 ? '#16a34a' : score >= 4 ? '#d97706' : '#6b7280'}"
+                stroke-width="2.5" stroke-dasharray="97.4" stroke-dashoffset="${97.4 - (97.4 * score / 10)}"
+                stroke-linecap="round" class="score-ring"/>
+            </svg>
+            <span class="absolute inset-0 flex items-center justify-center text-xs font-bold text-navy-900">${stats.answered > 0 ? score.toFixed(1) : '—'}</span>
+          </div>
+        </div>
+        <!-- Progress -->
+        <div class="mt-3">
+          <div class="flex justify-between text-xs text-gray-400 mb-1">
+            <span>${stats.answered} / ${TOTAL_ITEMS} ítems revisados</span>
+            <span>${pct}%</span>
+          </div>
+          <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full bg-navy-700 rounded-full prog-bar" style="width:${pct}%"></div>
+          </div>
+        </div>
+        <!-- Status summary -->
+        <div class="flex gap-2 mt-2">
+          <span class="text-xs bg-green-50 text-green-700 font-medium px-2 py-0.5 rounded-full">✓ ${stats.ok}</span>
+          <span class="text-xs bg-red-50 text-red-700 font-medium px-2 py-0.5 rounded-full">✗ ${stats.bad}</span>
+          <span class="text-xs bg-amber-50 text-amber-700 font-medium px-2 py-0.5 rounded-full">? ${stats.pend}</span>
+        </div>
+      </div>
+      <!-- Actions row -->
+      <div class="border-t border-gray-100 flex divide-x divide-gray-100">
+        <button onclick="selectAndGo('${p.id}')" class="flex-1 py-2.5 text-xs font-semibold text-navy-700 active:bg-gray-50 transition-colors">
+          📝 Ver checklist
+        </button>
+        <button onclick="editPiso('${p.id}')" class="flex-1 py-2.5 text-xs font-semibold text-gray-500 active:bg-gray-50 transition-colors">
+          ✏️ Editar
+        </button>
+        <button onclick="showDeleteModal('${p.id}')" class="flex-1 py-2.5 text-xs font-semibold text-red-400 active:bg-red-50 transition-colors">
+          🗑️ Borrar
+        </button>
+      </div>
+    </div>
+    `;
+  }).join('');
+}
+
+function selectPiso(id) {
+  activePisoId = id;
+  save();
+  renderPisosList();
+}
+
+function selectAndGo(id) {
+  activePisoId = id;
+  save();
+  switchPage('checklist');
+}
+
+function getPisoStats(p) {
+  const checks = p.checks || {};
+  let ok = 0, bad = 0, pend = 0;
+  Object.values(checks).forEach(v => {
+    if (v.status === 'ok') ok++;
+    else if (v.status === 'bad') bad++;
+    else if (v.status === 'pend') pend++;
+  });
+  return { ok, bad, pend, answered: ok + bad + pend };
+}
+
+function calcScore(p) {
+  const checks = p.checks || {};
+  let total = 0, count = 0;
+  Object.values(checks).forEach(v => {
+    if (v.status === 'ok')   { total += 10; count++; }
+    if (v.status === 'bad')  { total += 0;  count++; }
+    if (v.status === 'pend') { total += 5;  count++; }
+  });
+  return count > 0 ? total / count : 0;
+}
+
+// ============================================================
+// PISO MODAL (add/edit)
+// ============================================================
+function showNewPisoModal() {
+  editingPisoId = null;
+  document.getElementById('modal-title').textContent = 'Nuevo piso';
+  document.getElementById('input-direccion').value = '';
+  document.getElementById('input-precio').value = '';
+  document.getElementById('input-metros').value = '';
+  document.getElementById('input-habitaciones').value = '';
+  document.getElementById('input-anyo').value = '';
+  document.getElementById('input-notas').value = '';
+  const m = document.getElementById('modal-piso');
+  m.classList.remove('hidden'); m.classList.add('flex');
+  setTimeout(() => document.getElementById('input-direccion').focus(), 100);
+}
+
+function editPiso(id) {
+  const p = getPiso(id);
+  if (!p) return;
+  editingPisoId = id;
+  document.getElementById('modal-title').textContent = 'Editar piso';
+  document.getElementById('input-direccion').value = p.direccion || '';
+  document.getElementById('input-precio').value = p.precio || '';
+  document.getElementById('input-metros').value = p.metros || '';
+  document.getElementById('input-habitaciones').value = p.habitaciones || '';
+  document.getElementById('input-anyo').value = p.anyo || '';
+  document.getElementById('input-notas').value = p.notas || '';
+  const m = document.getElementById('modal-piso');
+  m.classList.remove('hidden'); m.classList.add('flex');
+}
+
+function savePiso() {
+  const dir = document.getElementById('input-direccion').value.trim();
+  if (!dir) { document.getElementById('input-direccion').focus(); return; }
+  const data = {
+    direccion: dir,
+    precio: document.getElementById('input-precio').value || '',
+    metros: document.getElementById('input-metros').value || '',
+    habitaciones: document.getElementById('input-habitaciones').value || '',
+    anyo: document.getElementById('input-anyo').value || '',
+    notas: document.getElementById('input-notas').value || '',
+  };
+  if (editingPisoId) {
+    const p = getPiso(editingPisoId);
+    Object.assign(p, data);
+  } else {
+    const p = { id: Date.now().toString(), checks: {}, ...data };
+    pisos.push(p);
+    activePisoId = p.id;
+  }
+  save(); closeModal(); renderPisosList();
+}
+
+function closeModal() {
+  const m = document.getElementById('modal-piso');
+  m.classList.add('hidden'); m.classList.remove('flex');
+}
+
+// ============================================================
+// DELETE
+// ============================================================
+function showDeleteModal(id) { deletingPisoId = id; const m = document.getElementById('modal-delete'); m.classList.remove('hidden'); m.classList.add('flex'); }
+function closeDeleteModal() { const m = document.getElementById('modal-delete'); m.classList.add('hidden'); m.classList.remove('flex'); deletingPisoId = null; }
+function confirmDelete() {
+  pisos = pisos.filter(p => p.id !== deletingPisoId);
+  if (activePisoId === deletingPisoId) activePisoId = pisos[0]?.id || null;
+  save(); closeDeleteModal(); renderPisosList();
+}
+
+// ============================================================
+// CHECKLIST
+// ============================================================
+function renderChecklist() {
+  const piso = getActivePiso();
+  const content = document.getElementById('checklist-content');
+  const empty = document.getElementById('checklist-empty');
+  if (!piso) {
+    content.innerHTML = ''; empty.classList.remove('hidden'); return;
+  }
+  empty.classList.add('hidden');
+  const stats = getPisoStats(piso);
+  const pct = Math.round((stats.answered / TOTAL_ITEMS) * 100);
+  const score = calcScore(piso);
+
+  content.innerHTML = `
+    <!-- Piso header -->
+    <div class="bg-navy-900 text-white rounded-2xl p-4 mb-4">
+      <p class="font-bold text-base truncate">${piso.direccion}</p>
+      <div class="flex items-center gap-3 mt-0.5 text-xs text-blue-200">
+        ${piso.precio ? `<span>€${Number(piso.precio).toLocaleString('es')}</span>` : ''}
+        ${piso.metros ? `<span>${piso.metros} m²</span>` : ''}
+        ${piso.anyo ? `<span>Año ${piso.anyo}</span>` : ''}
+      </div>
+      <!-- Global progress -->
+      <div class="mt-3 flex items-center gap-3">
+        <div class="flex-1">
+          <div class="flex justify-between text-xs text-blue-200 mb-1">
+            <span>${stats.answered} / ${TOTAL_ITEMS} revisados</span>
+            <span class="font-mono">${pct}%</span>
+          </div>
+          <div class="h-2 bg-navy-800 rounded-full overflow-hidden">
+            <div class="h-full bg-gold-400 rounded-full transition-all duration-500" style="width:${pct}%"></div>
+          </div>
+        </div>
+        <div class="text-center">
+          <div class="text-2xl font-bold text-gold-400">${stats.answered > 0 ? score.toFixed(1) : '—'}</div>
+          <div class="text-xs text-blue-200">Nota</div>
+        </div>
+      </div>
+      <!-- Mini summary -->
+      <div class="flex gap-2 mt-2">
+        <span class="text-xs bg-green-900/50 text-green-300 font-medium px-2 py-0.5 rounded-full">✓ ${stats.ok} OK</span>
+        <span class="text-xs bg-red-900/50 text-red-300 font-medium px-2 py-0.5 rounded-full">✗ ${stats.bad} Mal</span>
+        <span class="text-xs bg-amber-900/50 text-amber-300 font-medium px-2 py-0.5 rounded-full">? ${stats.pend} Pendiente</span>
+      </div>
+    </div>
+    <!-- Sections -->
+    ${CHECKLIST.map((sec, si) => renderSection(sec, piso, si)).join('')}
+    <!-- Valoración final -->
+    ${renderValoracion(piso)}
+  `;
+}
+
+function renderSection(sec, piso, si) {
+  const checks = piso.checks || {};
+  const answered = sec.items.filter(item => checks[item.id]?.status).length;
+  const isOpen = si === 0;
+  return `
+  <div class="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden print-section">
+    <button onclick="toggleSection('${sec.id}')" class="w-full flex items-center gap-3 px-4 py-3.5 text-left">
+      <span class="text-xl">${sec.icon}</span>
+      <div class="flex-1 min-w-0">
+        <p class="font-bold text-navy-900 text-sm">${sec.title}</p>
+        <p class="text-xs text-gray-400 mt-0.5">${sec.subtitle}</p>
+      </div>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <span class="text-xs font-mono text-gray-400">${answered}/${sec.items.length}</span>
+        <svg class="chevron ${isOpen ? 'open' : ''} w-4 h-4 text-gray-400" id="chev-${sec.id}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </div>
+    </button>
+    <div class="section-body ${isOpen ? 'open' : ''}" id="body-${sec.id}">
+      <div class="border-t border-gray-100 divide-y divide-gray-50">
+        ${sec.items.map(item => renderItem(item, piso)).join('')}
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function renderItem(item, piso) {
+  const check = (piso.checks || {})[item.id] || {};
+  const note = check.note || '';
+
+  // ── Special: energy certificate ──────────────────────────────
+  if (item.type === 'energy') {
+    const sel = check.energyLetter || '';
+    const letters = [
+      { l: 'A', bg: '#1a9e3f', light: '#d4f0dc' },
+      { l: 'B', bg: '#4caf50', light: '#dff0d8' },
+      { l: 'C', bg: '#8bc34a', light: '#eaf4d3' },
+      { l: 'D', bg: '#ffc107', light: '#fff8e1' },
+      { l: 'E', bg: '#ff9800', light: '#fff3e0' },
+      { l: 'F', bg: '#f44336', light: '#fde8e8' },
+      { l: 'G', bg: '#b71c1c', light: '#fce8e8' },
+    ];
+    const selData = letters.find(x => x.l === sel);
+    return `
+    <div class="px-4 py-3" id="item-${item.id}">
+      <p class="text-sm font-medium text-gray-800 leading-snug">${item.label}</p>
+      <p class="text-xs text-gray-400 mt-0.5 mb-3">${item.hint}</p>
+      <!-- Energy letter selector -->
+      <div class="flex gap-1.5 mb-2">
+        ${letters.map(({ l, bg, light }) => `
+          <button onclick="setEnergyLetter('${piso.id}','${item.id}','${l}')"
+            style="${sel === l ? `background:${bg};color:white;` : `background:${light};color:${bg};`}border:2px solid ${bg};"
+            class="energy-btn flex-1 h-9 rounded-lg text-sm ${sel === l ? 'sel' : ''}">
+            ${l}
+          </button>
+        `).join('')}
+      </div>
+      ${sel ? `<p class="text-xs mb-2" style="color:${selData?.bg}">
+        ${sel <= 'C' ? '✅ Eficiencia buena — facturas bajas' : sel === 'D' ? '🟡 Eficiencia media' : sel === 'E' ? '🟠 Eficiencia baja — reformas recomendables' : '🔴 Eficiencia muy mala — facturas altas, posibles reformas obligatorias'}
+      </p>` : ''}
+      <!-- Note -->
+      <div class="flex justify-end">
+        <button onclick="toggleNote('${item.id}')"
+          class="w-8 h-8 rounded-lg border-2 ${note ? 'border-navy-700 text-navy-700' : 'border-gray-200 text-gray-400'} flex items-center justify-center text-sm">
+          📝
+        </button>
+      </div>
+      <div class="note-area ${note ? 'open' : ''}" id="note-area-${item.id}">
+        <textarea rows="2" placeholder="Añadir nota…"
+          onchange="setNote('${piso.id}','${item.id}',this.value)"
+          class="mt-2 w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-700 resize-none bg-gray-50">${note}</textarea>
+      </div>
+    </div>
+    `;
+  }
+
+  // ── Special: aluminosis ───────────────────────────────────────
+  const status = check.status || '';
+  const isAluminosis = item.type === 'aluminosis';
+
+  return `
+  <div class="px-4 py-3" id="item-${item.id}">
+    <div class="flex items-start gap-2">
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-medium text-gray-800 leading-snug">${item.label}</p>
+        ${item.hint ? `<p class="text-xs text-gray-400 mt-0.5">${item.hint}</p>` : ''}
+      </div>
+      ${isAluminosis ? `
+        <button onclick="openAluminosisModal()" class="flex-shrink-0 w-7 h-7 rounded-full bg-amber-100 text-amber-700 font-bold text-xs flex items-center justify-center border border-amber-300 active:scale-90 transition-transform" title="Ver indicios">ℹ</button>
+      ` : ''}
+    </div>
+    <!-- Status buttons -->
+    <div class="flex items-center gap-2 mt-2.5">
+      <button onclick="setStatus('${piso.id}','${item.id}','ok')"
+        class="btn-status btn-ok flex-1 h-8 rounded-lg border-2 text-xs font-bold ${status === 'ok' ? 'active' : 'border-gray-200 text-gray-400'} flex items-center justify-center gap-1">
+        ✓ OK
+      </button>
+      <button onclick="setStatus('${piso.id}','${item.id}','bad')"
+        class="btn-status btn-bad flex-1 h-8 rounded-lg border-2 text-xs font-bold ${status === 'bad' ? 'active' : 'border-gray-200 text-gray-400'} flex items-center justify-center gap-1">
+        ✗ Mal
+      </button>
+      <button onclick="setStatus('${piso.id}','${item.id}','pend')"
+        class="btn-status btn-pend flex-1 h-8 rounded-lg border-2 text-xs font-bold ${status === 'pend' ? 'active' : 'border-gray-200 text-gray-400'} flex items-center justify-center gap-1">
+        ? Pendiente
+      </button>
+      <button onclick="toggleNote('${item.id}')"
+        class="w-8 h-8 rounded-lg border-2 ${note ? 'border-navy-700 text-navy-700' : 'border-gray-200 text-gray-400'} flex items-center justify-center text-sm flex-shrink-0">
+        📝
+      </button>
+    </div>
+    <!-- Note area -->
+    <div class="note-area ${note ? 'open' : ''}" id="note-area-${item.id}">
+      <textarea rows="2"
+        placeholder="Añadir nota…"
+        onchange="setNote('${piso.id}','${item.id}',this.value)"
+        class="mt-2 w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-700 resize-none bg-gray-50">${note}</textarea>
+    </div>
+  </div>
+  `;
+}
+
+function renderValoracion(piso) {
+  const v = piso.valoracion || {};
+  return `
+  <div class="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden">
+    <div class="px-4 py-3.5 border-b border-gray-100">
+      <p class="font-bold text-navy-900 text-sm flex items-center gap-2">⭐ Valoración final</p>
+    </div>
+    <div class="p-4 space-y-3">
+      <div>
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Nota personal (1–10)</label>
+        <div class="flex gap-2 mt-2 flex-wrap">
+          ${[1,2,3,4,5,6,7,8,9,10].map(n => `
+            <button onclick="setValoracion('${piso.id}','nota',${n})"
+              class="w-9 h-9 rounded-xl text-sm font-bold border-2 transition-all active:scale-90
+                ${(v.nota === n) ? 'bg-navy-900 text-white border-navy-900' : 'border-gray-200 text-gray-500'}">
+              ${n}
+            </button>
+          `).join('')}
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Decisión</label>
+        <div class="flex gap-2 mt-2">
+          ${[['si','✅ Sí compro'],['no','❌ No'],['info','🔍 Más info']].map(([val, lbl]) => `
+            <button onclick="setValoracion('${piso.id}','decision','${val}')"
+              class="flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all active:scale-95
+                ${(v.decision === val) ? 'bg-navy-900 text-white border-navy-900' : 'border-gray-200 text-gray-600'}">
+              ${lbl}
+            </button>
+          `).join('')}
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Observaciones finales</label>
+        <textarea rows="3" placeholder="Pros, contras, próximos pasos…"
+          onchange="setValoracion('${piso.id}','observaciones',this.value)"
+          class="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-700 resize-none bg-gray-50">${v.observaciones || ''}</textarea>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function toggleSection(id) {
+  const body = document.getElementById('body-' + id);
+  const chev = document.getElementById('chev-' + id);
+  body.classList.toggle('open');
+  chev.classList.toggle('open');
+}
+
+function toggleNote(itemId) {
+  const area = document.getElementById('note-area-' + itemId);
+  area.classList.toggle('open');
+  if (area.classList.contains('open')) setTimeout(() => area.querySelector('textarea')?.focus(), 50);
+}
+
+function setStatus(pisoId, itemId, status) {
+  const p = getPiso(pisoId);
+  if (!p) return;
+  if (!p.checks) p.checks = {};
+  const current = p.checks[itemId]?.status;
+  // Toggle off if same
+  if (current === status) {
+    p.checks[itemId] = { ...p.checks[itemId], status: '' };
+  } else {
+    p.checks[itemId] = { ...p.checks[itemId], status };
+  }
+  save();
+  // Re-render only the item + header
+  renderChecklist();
+}
+
+function setNote(pisoId, itemId, note) {
+  const p = getPiso(pisoId);
+  if (!p) return;
+  if (!p.checks) p.checks = {};
+  p.checks[itemId] = { ...p.checks[itemId], note };
+  save();
+}
+
+function setEnergyLetter(pisoId, itemId, letter) {
+  const p = getPiso(pisoId);
+  if (!p) return;
+  if (!p.checks) p.checks = {};
+  const cur = p.checks[itemId]?.energyLetter;
+  p.checks[itemId] = { ...p.checks[itemId], energyLetter: cur === letter ? '' : letter };
+  // Also set a synthetic status for scoring: A–C = ok, D = pend, E–G = bad
+  const l = cur === letter ? '' : letter;
+  const status = !l ? '' : l <= 'C' ? 'ok' : l === 'D' ? 'pend' : 'bad';
+  p.checks[itemId].status = status;
+  save();
+  renderChecklist();
+}
+
+function openAluminosisModal() {
+  const m = document.getElementById('modal-aluminosis');
+  m.classList.remove('hidden'); m.classList.add('flex');
+}
+function closeAluminosisModal() {
+  const m = document.getElementById('modal-aluminosis');
+  m.classList.add('hidden'); m.classList.remove('flex');
+}
+
+function setValoracion(pisoId, key, value) {
+  const p = getPiso(pisoId);
+  if (!p) return;
+  if (!p.valoracion) p.valoracion = {};
+  p.valoracion[key] = value;
+  save();
+  renderChecklist();
+}
+
+// ============================================================
+// COMPARATIVA
+// ============================================================
+function renderComparativa() {
+  const content = document.getElementById('comp-content');
+  const empty = document.getElementById('comp-empty');
+  if (pisos.length < 2) {
+    content.classList.add('hidden'); empty.classList.remove('hidden'); return;
+  }
+  empty.classList.add('hidden'); content.classList.remove('hidden');
+
+  const ENERGY_COLOR = { A:'#1a9e3f',B:'#4caf50',C:'#8bc34a',D:'#ffc107',E:'#ff9800',F:'#f44336',G:'#b71c1c' };
+
+  // ── Summary scoreboard ───────────────────────────────────────
+  const scoreboardRows = pisos.map((p, idx) => {
+    const stats = getPisoStats(p);
+    const score = calcScore(p);
+    const pct = Math.round((stats.answered / TOTAL_ITEMS) * 100);
+    const precioM2 = p.precio && p.metros ? Math.round(p.precio / p.metros) : null;
+    const v = p.valoracion || {};
+    const decisionLabel = v.decision === 'si' ? '✅ Sí' : v.decision === 'no' ? '❌ No' : v.decision === 'info' ? '🔍 Info' : '';
+    const scoreColor = score >= 7 ? '#16a34a' : score >= 4 ? '#d97706' : '#6b7280';
+    const energyLetter = (p.checks?.['d3']?.energyLetter) || '';
+
+    return `
+    <div class="bg-white rounded-2xl shadow-sm overflow-hidden border-l-4 ${p.id === activePisoId ? 'border-l-yellow-400' : 'border-l-transparent'}">
+      <!-- Header row -->
+      <div class="flex items-center gap-3 px-4 py-3 bg-gray-50 border-b border-gray-100">
+        <span class="w-6 h-6 rounded-full bg-navy-900 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">${idx + 1}</span>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-navy-900 text-sm truncate">${p.direccion}</p>
+          <p class="text-xs text-gray-400">${[p.metros ? p.metros+' m²' : '', p.habitaciones ? p.habitaciones+' hab.' : '', p.anyo ? 'Año '+p.anyo : ''].filter(Boolean).join(' · ')}</p>
+        </div>
+        ${decisionLabel ? `<span class="text-sm font-bold flex-shrink-0">${decisionLabel}</span>` : ''}
+      </div>
+      <!-- Stats grid -->
+      <div class="grid grid-cols-4 divide-x divide-gray-100">
+        <!-- Score -->
+        <div class="flex flex-col items-center justify-center py-3 px-1">
+          <span class="text-xl font-black" style="color:${scoreColor}">${stats.answered > 0 ? score.toFixed(1) : '—'}</span>
+          <span class="text-xs text-gray-400 mt-0.5">Nota</span>
+        </div>
+        <!-- Precio -->
+        <div class="flex flex-col items-center justify-center py-3 px-1">
+          ${p.precio ? `<span class="text-sm font-bold text-navy-900 leading-tight text-center">${(Number(p.precio)/1000).toFixed(0)}k€</span>
+          ${precioM2 ? `<span class="text-xs text-gray-400">${(precioM2/1000).toFixed(1)}k/m²</span>` : '<span class="text-xs text-gray-400">—</span>'}` : '<span class="text-sm text-gray-300">—</span>'}
+        </div>
+        <!-- Eficiencia -->
+        <div class="flex flex-col items-center justify-center py-3 px-1">
+          ${energyLetter
+            ? `<span class="w-8 h-8 rounded-lg text-white font-black text-base flex items-center justify-center" style="background:${ENERGY_COLOR[energyLetter]}">${energyLetter}</span>`
+            : `<span class="text-xs text-gray-300">—</span>`}
+          <span class="text-xs text-gray-400 mt-0.5">Energía</span>
+        </div>
+        <!-- OK/Mal -->
+        <div class="flex flex-col items-center justify-center py-3 px-1 gap-0.5">
+          <span class="text-xs font-semibold text-green-700">✓ ${stats.ok}</span>
+          <span class="text-xs font-semibold text-red-600">✗ ${stats.bad}</span>
+          <span class="text-xs font-semibold text-amber-600">? ${stats.pend}</span>
+        </div>
+      </div>
+      <!-- Progress bar -->
+      <div class="px-4 pb-3">
+        <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${scoreColor}"></div>
+        </div>
+        <p class="text-xs text-gray-400 mt-1 text-right">${pct}% revisado · ${v.nota ? `Nota personal: ${v.nota}/10` : 'Sin nota personal'}</p>
+      </div>
+    </div>
+    `;
+  }).join('');
+
+  // ── Section comparison: item rows per section ────────────────
+  const ENERGY_GRADES = { A:'A ✅',B:'B ✅',C:'C 🟡',D:'D 🟡',E:'E 🟠',F:'F 🔴',G:'G 🔴' };
+
+  const sectionBlocks = CHECKLIST.map(sec => {
+    const itemRows = sec.items.map(item => {
+      const cells = pisos.map((p, idx) => {
+        const c = (p.checks || {})[item.id] || {};
+        let display;
+        if (item.type === 'energy') {
+          display = c.energyLetter
+            ? `<span class="font-bold text-xs px-1.5 py-0.5 rounded text-white" style="background:${ENERGY_COLOR[c.energyLetter]}">${c.energyLetter}</span>`
+            : `<span class="text-gray-300 text-sm">·</span>`;
+        } else {
+          display = c.status === 'ok'   ? '<span class="text-green-600 font-bold text-base">✓</span>'
+                  : c.status === 'bad'  ? '<span class="text-red-600 font-bold text-base">✗</span>'
+                  : c.status === 'pend' ? '<span class="text-amber-500 font-bold text-base">?</span>'
+                  : '<span class="text-gray-200 text-base">·</span>';
+        }
+        return `<td class="py-2.5 text-center w-12 border-l border-gray-100">${display}</td>`;
+      }).join('');
+
+      return `<tr class="border-b border-gray-50">
+        <td class="py-2.5 pl-4 pr-2 text-xs text-gray-700 leading-snug">${item.label}</td>
+        ${cells}
+      </tr>`;
+    }).join('');
+
+    return `
+    <div class="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden">
+      <!-- Section header -->
+      <div class="bg-navy-900 px-4 py-2.5 flex items-center justify-between">
+        <span class="text-sm font-bold text-white">${sec.icon} ${sec.title}</span>
+        <!-- Piso number legend -->
+        <div class="flex gap-1.5">
+          ${pisos.map((_,i) => `<span class="w-5 h-5 rounded-full bg-white/20 text-white text-xs font-bold flex items-center justify-center">${i+1}</span>`).join('')}
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse" style="min-width:${200 + pisos.length * 48}px">
+          <tbody>${itemRows}</tbody>
+        </table>
+      </div>
+    </div>
+    `;
+  }).join('');
+
+  content.innerHTML = `
+    <!-- Piso legend header -->
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
+      ${pisos.map((p, i) => `
+        <span class="flex items-center gap-1.5 text-xs bg-white rounded-full px-3 py-1 shadow-sm border border-gray-100">
+          <span class="w-4 h-4 rounded-full bg-navy-900 text-white font-bold flex items-center justify-center text-xs">${i+1}</span>
+          <span class="text-gray-600 truncate max-w-[120px]">${p.direccion.split(',')[0]}</span>
+        </span>
+      `).join('')}
+    </div>
+    <!-- Scoreboard -->
+    <div class="space-y-3 mb-4">${scoreboardRows}</div>
+    <!-- Section comparisons -->
+    ${sectionBlocks}
+  `;
+}
+
+// ============================================================
+// EXPORT / SHARE
+// ============================================================
+function shareReport() {
+  const piso = getActivePiso();
+  if (!piso) return;
+  const stats = getPisoStats(piso);
+  const score = calcScore(piso);
+  const v = piso.valoracion || {};
+
+  let text = `🏠 INFORME PISO\n`;
+  text += `📍 ${piso.direccion}\n`;
+  if (piso.precio) text += `💶 €${Number(piso.precio).toLocaleString('es')}`;
+  if (piso.metros) text += ` · ${piso.metros} m²`;
+  if (piso.precio && piso.metros) text += ` · ${Math.round(piso.precio/piso.metros).toLocaleString('es')} €/m²`;
+  text += `\n`;
+  if (piso.anyo) text += `🏗️ Año ${piso.anyo}\n`;
+  text += `\n📊 CHECKLIST: ${stats.answered}/${TOTAL_ITEMS} ítems\n`;
+  text += `✅ OK: ${stats.ok}  ❌ Mal: ${stats.bad}  ⏳ Pendiente: ${stats.pend}\n`;
+  text += `⭐ Nota automática: ${score.toFixed(1)}/10\n`;
+  if (v.nota) text += `👤 Nota personal: ${v.nota}/10\n`;
+  if (v.decision) {
+    const d = v.decision === 'si' ? '✅ Sí compro' : v.decision === 'no' ? '❌ No' : '🔍 Más info';
+    text += `🎯 Decisión: ${d}\n`;
+  }
+
+  // Add problems
+  const problems = [];
+  CHECKLIST.forEach(sec => {
+    sec.items.forEach(item => {
+      const c = (piso.checks || {})[item.id];
+      if (item.type === 'energy' && c?.energyLetter) {
+        const l = c.energyLetter;
+        if (l >= 'E') problems.push(`• Certificado energético: ${l} (muy bajo)`);
+      } else if (c?.status === 'bad') {
+        problems.push(`• ${item.label}${c.note ? ': ' + c.note : ''}`);
+      }
+    });
+  });
+  const energyLetter = piso.checks?.['d3']?.energyLetter;
+  if (energyLetter) text += `🏷️ Eficiencia energética: ${energyLetter}\n`;
+  if (problems.length > 0) {
+    text += `\n⚠️ PUNTOS NEGATIVOS:\n${problems.join('\n')}\n`;
+  }
+
+  if (v.observaciones) text += `\n💬 Notas: ${v.observaciones}\n`;
+  text += `\n— Generado con Checklist Pisos`;
+
+  if (navigator.share) {
+    navigator.share({ title: `Informe: ${piso.direccion}`, text });
+  } else {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('📋 Informe copiado al portapapeles');
+    });
+  }
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-xl z-50 no-print';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+function init() {
+  if (!activePisoId && pisos.length > 0) activePisoId = pisos[0].id;
+  renderPisosList();
+  // Close modals on backdrop click
+  document.getElementById('modal-piso').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+  document.getElementById('modal-delete').addEventListener('click', e => { if (e.target === e.currentTarget) closeDeleteModal(); });
+  document.getElementById('modal-aluminosis').addEventListener('click', e => { if (e.target === e.currentTarget) closeAluminosisModal(); });
+}
+
+init();
+</script>
+
+</body>
+</html>
