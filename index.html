@@ -366,6 +366,8 @@ let activePisoId = localStorage.getItem('activePisoId') || null;
 let currentPage = 'pisos';
 let editingPisoId = null;
 let deletingPisoId = null;
+// Track which checklist sections are open (persists across re-renders)
+let openSections = new Set(['documentacion']); // first section open by default
 
 // ============================================================
 // PERSISTENCE
@@ -605,6 +607,10 @@ function renderChecklist() {
   const pct = Math.round((stats.answered / TOTAL_ITEMS) * 100);
   const score = calcScore(piso);
 
+  // Preserve scroll position across re-renders
+  const scroller = document.getElementById('main-content');
+  const scrollTop = scroller ? scroller.scrollTop : 0;
+
   content.innerHTML = `
     <!-- Piso header -->
     <div class="bg-navy-900 text-white rounded-2xl p-4 mb-4">
@@ -642,12 +648,14 @@ function renderChecklist() {
     <!-- Valoración final -->
     ${renderValoracion(piso)}
   `;
+  // Restore scroll position so the page doesn't jump
+  if (scroller) requestAnimationFrame(() => { scroller.scrollTop = scrollTop; });
 }
 
 function renderSection(sec, piso, si) {
   const checks = piso.checks || {};
   const answered = sec.items.filter(item => checks[item.id]?.status).length;
-  const isOpen = si === 0;
+  const isOpen = openSections.has(sec.id);
   return `
   <div class="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden print-section">
     <button onclick="toggleSection('${sec.id}')" class="w-full flex items-center gap-3 px-4 py-3.5 text-left">
@@ -811,10 +819,15 @@ function renderValoracion(piso) {
 }
 
 function toggleSection(id) {
+  if (openSections.has(id)) {
+    openSections.delete(id);
+  } else {
+    openSections.add(id);
+  }
   const body = document.getElementById('body-' + id);
   const chev = document.getElementById('chev-' + id);
-  body.classList.toggle('open');
-  chev.classList.toggle('open');
+  body.classList.toggle('open', openSections.has(id));
+  chev.classList.toggle('open', openSections.has(id));
 }
 
 function toggleNote(itemId) {
@@ -828,14 +841,8 @@ function setStatus(pisoId, itemId, status) {
   if (!p) return;
   if (!p.checks) p.checks = {};
   const current = p.checks[itemId]?.status;
-  // Toggle off if same
-  if (current === status) {
-    p.checks[itemId] = { ...p.checks[itemId], status: '' };
-  } else {
-    p.checks[itemId] = { ...p.checks[itemId], status };
-  }
+  p.checks[itemId] = { ...p.checks[itemId], status: current === status ? '' : status };
   save();
-  // Re-render only the item + header
   renderChecklist();
 }
 
