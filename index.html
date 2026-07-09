@@ -257,23 +257,10 @@ tailwind.config = {
 // ============================================================
 const CHECKLIST = [
   {
-    id: 'documentacion', icon: '📋', title: 'Documentación previa',
-    subtitle: 'Pedir antes de visitar',
-    items: [
-      { id: 'd1', label: 'Nota simple del Registro de la Propiedad', hint: 'Confirma propietario, cargas e hipotecas' },
-      { id: 'd2', label: 'Valor de referencia Catastro', hint: 'sedecatastro.gob.es — base para calcular impuestos' },
-      { id: 'd3', label: 'Certificado de eficiencia energética', hint: 'Letra A–G; F o G = facturas altas', type: 'energy' },
-      { id: 'd4', label: 'ITE (Inspección Técnica del Edificio)', hint: 'Obligatoria en edificios >45 años' },
-      { id: 'd5', label: 'Últimas actas de la comunidad', hint: 'Detecta derramas o conflictos' },
-      { id: 'd6', label: 'Certificado de deudas con la comunidad', hint: 'Las deudas pasan al comprador' },
-      { id: 'd7', label: 'Recibos del IBI al corriente', hint: 'Sin deuda con Hacienda local' },
-      { id: 'd8', label: 'Cédula de habitabilidad vigente', hint: 'Necesaria para escriturar y para hipoteca' },
-    ]
-  },
-  {
     id: 'edificio', icon: '🏗️', title: 'Estado del edificio',
     subtitle: 'Especialmente importante en edificios antiguos',
     items: [
+      { id: 'e0', label: 'Construcción con cemento aluminoso', hint: 'Común en edificios de 1950–1975', type: 'aluminosis' },
       { id: 'e1', label: 'Fachada: sin grietas ni humedades', hint: '' },
       { id: 'e2', label: 'Cubierta / tejado en buen estado', hint: '' },
       { id: 'e3', label: 'Ascensor: existencia y estado', hint: 'Si no hay, ¿cabe instalarlo? ¿Derrama prevista?' },
@@ -282,6 +269,7 @@ const CHECKLIST = [
       { id: 'e6', label: 'Estructura sin grietas visibles', hint: '' },
       { id: 'e7', label: 'Instalación eléctrica del edificio actualizada', hint: '' },
       { id: 'e8', label: 'Fontanería común en buen estado', hint: 'Tuberías de plomo = cambio obligatorio' },
+      { id: 'd4', label: 'ITE (Inspección Técnica del Edificio)', hint: 'Obligatoria en edificios >45 años' },
     ]
   },
   {
@@ -311,6 +299,7 @@ const CHECKLIST = [
       { id: 'in7', label: 'Ventilación en baños y cocina', hint: 'Extracción mecánica o ventana exterior' },
       { id: 'in8', label: 'Fibra óptica disponible', hint: '' },
       { id: 'in9', label: 'Portero automático / videoportero', hint: '' },
+      { id: 'd3', label: 'Certificado de eficiencia energética', hint: 'Letra A–G; F o G = facturas altas', type: 'energy' },
     ]
   },
   {
@@ -325,6 +314,18 @@ const CHECKLIST = [
       { id: 'n6', label: 'Colegio / sanidad si hay niños', hint: '' },
       { id: 'n7', label: 'Aparcamiento en la zona', hint: '' },
       { id: 'n8', label: 'Sin planes urbanísticos negativos', hint: 'Consultar Ayuntamiento' },
+    ]
+  },
+  {
+    id: 'documentacion', icon: '📋', title: 'Documentación previa',
+    subtitle: 'Pedir antes de visitar',
+    items: [
+      { id: 'd1', label: 'Nota simple del Registro de la Propiedad', hint: 'Confirma propietario, cargas e hipotecas' },
+      { id: 'd2', label: 'Valor de referencia Catastro', hint: 'sedecatastro.gob.es — base para calcular impuestos' },
+      { id: 'd5', label: 'Últimas actas de la comunidad', hint: 'Detecta derramas o conflictos' },
+      { id: 'd6', label: 'Certificado de deudas con la comunidad', hint: 'Las deudas pasan al comprador' },
+      { id: 'd7', label: 'Recibos del IBI al corriente', hint: 'Sin deuda con Hacienda local' },
+      { id: 'd8', label: 'Cédula de habitabilidad vigente', hint: 'Necesaria para escriturar y para hipoteca' },
     ]
   },
   {
@@ -367,7 +368,7 @@ let currentPage = 'pisos';
 let editingPisoId = null;
 let deletingPisoId = null;
 // Track which checklist sections are open (persists across re-renders)
-let openSections = new Set(['documentacion']); // first section open by default
+let openSections = new Set(['edificio']); // first section open by default
 
 // ============================================================
 // PERSISTENCE
@@ -380,6 +381,8 @@ function save() {
 function getPiso(id) { return pisos.find(p => p.id === id); }
 
 function getActivePiso() { return getPiso(activePisoId); }
+
+function isDescartado(p) { return p.valoracion?.decision === 'no'; }
 
 // ============================================================
 // PAGE NAVIGATION
@@ -420,20 +423,29 @@ function renderPisosList() {
   }
   empty.classList.add('hidden'); empty.classList.remove('flex');
 
-  list.innerHTML = pisos.map(p => {
+  // Descartados (decisión = "no") van al final, sin reordenar el resto
+  const sorted = [...pisos].sort((a, b) => {
+    const aOut = isDescartado(a) ? 1 : 0;
+    const bOut = isDescartado(b) ? 1 : 0;
+    return aOut - bOut;
+  });
+
+  list.innerHTML = sorted.map(p => {
     const stats = getPisoStats(p);
     const pct = Math.round((stats.answered / TOTAL_ITEMS) * 100);
     const score = calcScore(p);
     const isActive = p.id === activePisoId;
     const precioM2 = p.precio && p.metros ? Math.round(p.precio / p.metros) : null;
+    const descartado = isDescartado(p);
 
     return `
-    <div class="piso-card bg-white rounded-2xl shadow-sm border-2 ${isActive ? 'border-navy-700' : 'border-transparent'} overflow-hidden">
+    <div class="piso-card bg-white rounded-2xl shadow-sm border-2 ${isActive ? 'border-navy-700' : 'border-transparent'} overflow-hidden ${descartado ? 'opacity-60' : ''}">
       <div class="p-4 cursor-pointer" onclick="selectPiso('${p.id}')">
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2">
               ${isActive ? '<span class="text-xs bg-gold-400 text-navy-900 font-bold px-2 py-0.5 rounded-full">ACTIVO</span>' : ''}
+              ${descartado ? '<span class="text-xs bg-gray-200 text-gray-500 font-bold px-2 py-0.5 rounded-full">❌ DESCARTADO</span>' : ''}
               <p class="font-bold text-navy-900 text-sm truncate">${p.direccion}</p>
             </div>
             <div class="flex items-center gap-3 mt-1 text-xs text-gray-500">
@@ -447,11 +459,11 @@ function renderPisosList() {
           <div class="relative flex-shrink-0 w-12 h-12">
             <svg viewBox="0 0 36 36" class="w-12 h-12 -rotate-90">
               <circle cx="18" cy="18" r="15.5" fill="none" stroke="#e5e7eb" stroke-width="2.5"/>
-              <circle cx="18" cy="18" r="15.5" fill="none" stroke="${score >= 7 ? '#16a34a' : score >= 4 ? '#d97706' : '#6b7280'}"
+              <circle cx="18" cy="18" r="15.5" fill="none" stroke="${descartado ? '#9ca3af' : (score >= 7 ? '#16a34a' : score >= 4 ? '#d97706' : '#6b7280')}"
                 stroke-width="2.5" stroke-dasharray="97.4" stroke-dashoffset="${97.4 - (97.4 * score / 10)}"
                 stroke-linecap="round" class="score-ring"/>
             </svg>
-            <span class="absolute inset-0 flex items-center justify-center text-xs font-bold text-navy-900">${stats.answered > 0 ? score.toFixed(1) : '—'}</span>
+            <span class="absolute inset-0 flex items-center justify-center text-xs font-bold ${descartado ? 'text-gray-400' : 'text-navy-900'}">${stats.answered > 0 ? score.toFixed(1) : '—'}</span>
           </div>
         </div>
         <!-- Progress -->
@@ -461,7 +473,7 @@ function renderPisosList() {
             <span>${pct}%</span>
           </div>
           <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div class="h-full bg-navy-700 rounded-full prog-bar" style="width:${pct}%"></div>
+            <div class="h-full ${descartado ? 'bg-gray-400' : 'bg-navy-700'} rounded-full prog-bar" style="width:${pct}%"></div>
           </div>
         </div>
         <!-- Status summary -->
@@ -892,15 +904,21 @@ function setValoracion(pisoId, key, value) {
 function renderComparativa() {
   const content = document.getElementById('comp-content');
   const empty = document.getElementById('comp-empty');
-  if (pisos.length < 2) {
-    content.classList.add('hidden'); empty.classList.remove('hidden'); return;
+  // Excluir pisos descartados (decisión = "no") de la comparativa
+  const comparablePisos = pisos.filter(p => !isDescartado(p));
+  if (comparablePisos.length < 2) {
+    content.classList.add('hidden'); empty.classList.remove('hidden');
+    empty.innerHTML = pisos.some(isDescartado)
+      ? `<div class="text-5xl mb-3">📊</div><p class="text-gray-500 text-sm">Añade al menos 2 pisos (no descartados) para comparar</p>`
+      : `<div class="text-5xl mb-3">📊</div><p class="text-gray-500 text-sm">Añade al menos 2 pisos para comparar</p>`;
+    return;
   }
   empty.classList.add('hidden'); content.classList.remove('hidden');
 
   const ENERGY_COLOR = { A:'#1a9e3f',B:'#4caf50',C:'#8bc34a',D:'#ffc107',E:'#ff9800',F:'#f44336',G:'#b71c1c' };
 
   // ── Summary scoreboard ───────────────────────────────────────
-  const scoreboardRows = pisos.map((p, idx) => {
+  const scoreboardRows = comparablePisos.map((p, idx) => {
     const stats = getPisoStats(p);
     const score = calcScore(p);
     const pct = Math.round((stats.answered / TOTAL_ITEMS) * 100);
@@ -963,7 +981,7 @@ function renderComparativa() {
 
   const sectionBlocks = CHECKLIST.map(sec => {
     const itemRows = sec.items.map(item => {
-      const cells = pisos.map((p, idx) => {
+      const cells = comparablePisos.map((p, idx) => {
         const c = (p.checks || {})[item.id] || {};
         let display;
         if (item.type === 'energy') {
@@ -992,11 +1010,11 @@ function renderComparativa() {
         <span class="text-sm font-bold text-white">${sec.icon} ${sec.title}</span>
         <!-- Piso number legend -->
         <div class="flex gap-1.5">
-          ${pisos.map((_,i) => `<span class="w-5 h-5 rounded-full bg-white/20 text-white text-xs font-bold flex items-center justify-center">${i+1}</span>`).join('')}
+          ${comparablePisos.map((_,i) => `<span class="w-5 h-5 rounded-full bg-white/20 text-white text-xs font-bold flex items-center justify-center">${i+1}</span>`).join('')}
         </div>
       </div>
       <div class="overflow-x-auto">
-        <table class="w-full border-collapse" style="min-width:${200 + pisos.length * 48}px">
+        <table class="w-full border-collapse" style="min-width:${200 + comparablePisos.length * 48}px">
           <tbody>${itemRows}</tbody>
         </table>
       </div>
@@ -1007,7 +1025,7 @@ function renderComparativa() {
   content.innerHTML = `
     <!-- Piso legend header -->
     <div class="flex items-center gap-2 mb-3 flex-wrap">
-      ${pisos.map((p, i) => `
+      ${comparablePisos.map((p, i) => `
         <span class="flex items-center gap-1.5 text-xs bg-white rounded-full px-3 py-1 shadow-sm border border-gray-100">
           <span class="w-4 h-4 rounded-full bg-navy-900 text-white font-bold flex items-center justify-center text-xs">${i+1}</span>
           <span class="text-gray-600 truncate max-w-[120px]">${p.direccion.split(',')[0]}</span>
