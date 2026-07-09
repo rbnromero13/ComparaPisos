@@ -7,9 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Pisos">
-<link rel="manifest" href="./manifest.json">
-<link rel="icon" href="./icon-192.png">
-<link rel="apple-touch-icon" href="./icon-192.png">
 <title>Checklist Pisos</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1120,65 +1117,7 @@ function init() {
 }
 
 init();
-
-// ============================================================
-// SERVICE WORKER — registro y detección de actualizaciones
-// ============================================================
-let waitingWorker = null;
-
-function showUpdateBanner() {
-  document.getElementById('update-banner').classList.remove('hidden');
-  document.getElementById('update-banner').classList.add('flex');
-}
-
-function applyUpdate() {
-  if (waitingWorker) {
-    waitingWorker.postMessage('SKIP_WAITING');
-  }
-}
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').then((registration) => {
-      // Si ya hay una versión nueva esperando (poco frecuente en la primera carga)
-      if (registration.waiting) {
-        waitingWorker = registration.waiting;
-        showUpdateBanner();
-      }
-      // Se detecta cuando el navegador encuentra un sw.js distinto al activo
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && registration.active) {
-            waitingWorker = newWorker;
-            showUpdateBanner();
-          }
-        });
-      });
-    }).catch((err) => console.warn('No se pudo registrar el service worker:', err));
-
-    // Cuando el nuevo SW toma el control, recargamos para servir la versión nueva
-    let refreshed = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshed) return;
-      refreshed = true;
-      window.location.reload();
-    });
-  });
-}
 </script>
-
-<!-- ===== BANNER: ACTUALIZACIÓN DISPONIBLE ===== -->
-<div id="update-banner" class="fixed bottom-20 left-1/2 -translate-x-1/2 max-w-sm w-[calc(100%-2rem)] bg-navy-900 text-white rounded-2xl shadow-2xl px-4 py-3.5 z-50 hidden items-center gap-3 no-print">
-  <span class="text-xl flex-shrink-0">🔄</span>
-  <div class="flex-1 min-w-0">
-    <p class="text-sm font-semibold">Nueva versión disponible</p>
-    <p class="text-xs text-blue-200">Actualiza para ver los últimos cambios</p>
-  </div>
-  <button onclick="applyUpdate()" class="bg-gold-400 text-navy-900 font-bold text-xs px-3 py-2 rounded-xl flex-shrink-0 active:scale-95 transition-transform">
-    Actualizar
-  </button>
-</div>
 
 </body>
 </html>
