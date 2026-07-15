@@ -395,6 +395,7 @@ let editingPisoId = null;
 let deletingPisoId = null;
 // Track which checklist sections are open (persists across re-renders)
 let openSections = new Set(['edificio']); // first section open by default
+let showDescartados = false; // colapsable de pisos descartados
 
 // ============================================================
 // PERSISTENCE
@@ -449,81 +450,109 @@ function renderPisosList() {
   }
   empty.classList.add('hidden'); empty.classList.remove('flex');
 
-  // Descartados (decisión = "no") van al final, sin reordenar el resto
-  const sorted = [...pisos].sort((a, b) => {
-    const aOut = isDescartado(a) ? 1 : 0;
-    const bOut = isDescartado(b) ? 1 : 0;
-    return aOut - bOut;
-  });
+  const activos = pisos.filter(p => !isDescartado(p));
+  const descartados = pisos.filter(p => isDescartado(p));
 
-  list.innerHTML = sorted.map(p => {
-    const stats = getPisoStats(p);
-    const pct = Math.round((stats.answered / TOTAL_ITEMS) * 100);
-    const score = calcScore(p);
-    const isActive = p.id === activePisoId;
-    const precioM2 = p.precio && p.metros ? Math.round(p.precio / p.metros) : null;
-    const descartado = isDescartado(p);
+  let html = activos.map(renderPisoCard).join('');
 
-    return `
-    <div class="piso-card bg-white rounded-2xl shadow-sm border-2 ${isActive ? 'border-navy-700' : 'border-transparent'} overflow-hidden ${descartado ? 'opacity-60' : ''}">
-      <div class="p-4 cursor-pointer" onclick="selectPiso('${p.id}')">
-        <div class="flex items-start justify-between gap-2">
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              ${isActive ? '<span class="text-xs bg-gold-400 text-navy-900 font-bold px-2 py-0.5 rounded-full">ACTIVO</span>' : ''}
-              ${descartado ? '<span class="text-xs bg-gray-200 text-gray-500 font-bold px-2 py-0.5 rounded-full">❌ DESCARTADO</span>' : ''}
-              <p class="font-bold text-navy-900 text-sm truncate">${p.direccion}</p>
-            </div>
-            <div class="flex items-center gap-3 mt-1 text-xs text-gray-500">
-              ${p.precio ? `<span class="font-semibold text-navy-800">€${Number(p.precio).toLocaleString('es')}</span>` : ''}
-              ${p.metros ? `<span>${p.metros} m²</span>` : ''}
-              ${precioM2 ? `<span class="bg-gray-100 rounded px-1.5 py-0.5 font-mono">${precioM2.toLocaleString('es')} €/m²</span>` : ''}
-              ${p.habitaciones ? `<span>${p.habitaciones} hab.</span>` : ''}
-            </div>
-          </div>
-          <!-- Score circle -->
-          <div class="relative flex-shrink-0 w-12 h-12">
-            <svg viewBox="0 0 36 36" class="w-12 h-12 -rotate-90">
-              <circle cx="18" cy="18" r="15.5" fill="none" stroke="#e5e7eb" stroke-width="2.5"/>
-              <circle cx="18" cy="18" r="15.5" fill="none" stroke="${descartado ? '#9ca3af' : (score >= 7 ? '#16a34a' : score >= 4 ? '#d97706' : '#6b7280')}"
-                stroke-width="2.5" stroke-dasharray="97.4" stroke-dashoffset="${97.4 - (97.4 * score / 10)}"
-                stroke-linecap="round" class="score-ring"/>
-            </svg>
-            <span class="absolute inset-0 flex items-center justify-center text-xs font-bold ${descartado ? 'text-gray-400' : 'text-navy-900'}">${stats.answered > 0 ? score.toFixed(1) : '—'}</span>
-          </div>
+  if (descartados.length > 0) {
+    html += `
+    <div class="mt-2">
+      <button onclick="toggleDescartados()" class="w-full flex items-center gap-2 px-3 py-2.5 text-left bg-gray-100 rounded-xl active:bg-gray-200 transition-colors">
+        <span class="text-sm">🗂️</span>
+        <span class="flex-1 font-semibold text-gray-600 text-sm">Pisos descartados</span>
+        <span class="text-xs font-mono text-gray-400 bg-white rounded-full px-2 py-0.5">${descartados.length}</span>
+        <svg class="chevron ${showDescartados ? 'open' : ''} w-4 h-4 text-gray-400" id="chev-descartados" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+      <div class="section-body ${showDescartados ? 'open' : ''} mt-3" id="body-descartados">
+        <div class="space-y-3">
+          ${descartados.map(renderPisoCard).join('')}
         </div>
-        <!-- Progress -->
-        <div class="mt-3">
-          <div class="flex justify-between text-xs text-gray-400 mb-1">
-            <span>${stats.answered} / ${TOTAL_ITEMS} ítems revisados</span>
-            <span>${pct}%</span>
-          </div>
-          <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div class="h-full ${descartado ? 'bg-gray-400' : 'bg-navy-700'} rounded-full prog-bar" style="width:${pct}%"></div>
-          </div>
-        </div>
-        <!-- Status summary -->
-        <div class="flex gap-2 mt-2">
-          <span class="text-xs bg-green-50 text-green-700 font-medium px-2 py-0.5 rounded-full">✓ ${stats.ok}</span>
-          <span class="text-xs bg-red-50 text-red-700 font-medium px-2 py-0.5 rounded-full">✗ ${stats.bad}</span>
-          <span class="text-xs bg-amber-50 text-amber-700 font-medium px-2 py-0.5 rounded-full">? ${stats.pend}</span>
-        </div>
-      </div>
-      <!-- Actions row -->
-      <div class="border-t border-gray-100 flex divide-x divide-gray-100">
-        <button onclick="selectAndGo('${p.id}')" class="flex-1 py-2.5 text-xs font-semibold text-navy-700 active:bg-gray-50 transition-colors">
-          📝 Ver checklist
-        </button>
-        <button onclick="editPiso('${p.id}')" class="flex-1 py-2.5 text-xs font-semibold text-gray-500 active:bg-gray-50 transition-colors">
-          ✏️ Editar
-        </button>
-        <button onclick="showDeleteModal('${p.id}')" class="flex-1 py-2.5 text-xs font-semibold text-red-400 active:bg-red-50 transition-colors">
-          🗑️ Borrar
-        </button>
       </div>
     </div>
     `;
-  }).join('');
+  }
+
+  list.innerHTML = html;
+}
+
+function toggleDescartados() {
+  showDescartados = !showDescartados;
+  const body = document.getElementById('body-descartados');
+  const chev = document.getElementById('chev-descartados');
+  if (body) body.classList.toggle('open', showDescartados);
+  if (chev) chev.classList.toggle('open', showDescartados);
+}
+
+function renderPisoCard(p) {
+  const stats = getPisoStats(p);
+  const pct = Math.round((stats.answered / TOTAL_ITEMS) * 100);
+  const score = calcScore(p);
+  const isActive = p.id === activePisoId;
+  const precioM2 = p.precio && p.metros ? Math.round(p.precio / p.metros) : null;
+  const descartado = isDescartado(p);
+
+  return `
+  <div class="piso-card bg-white rounded-2xl shadow-sm border-2 ${isActive ? 'border-navy-700' : 'border-transparent'} overflow-hidden ${descartado ? 'opacity-60' : ''}">
+    <div class="p-4 cursor-pointer" onclick="selectPiso('${p.id}')">
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            ${isActive ? '<span class="text-xs bg-gold-400 text-navy-900 font-bold px-2 py-0.5 rounded-full">ACTIVO</span>' : ''}
+            ${descartado ? '<span class="text-xs bg-gray-200 text-gray-500 font-bold px-2 py-0.5 rounded-full">❌ DESCARTADO</span>' : ''}
+            <p class="font-bold text-navy-900 text-sm truncate">${p.direccion}</p>
+          </div>
+          <div class="flex items-center gap-3 mt-1 text-xs text-gray-500">
+            ${p.precio ? `<span class="font-semibold text-navy-800">€${Number(p.precio).toLocaleString('es')}</span>` : ''}
+            ${p.metros ? `<span>${p.metros} m²</span>` : ''}
+            ${precioM2 ? `<span class="bg-gray-100 rounded px-1.5 py-0.5 font-mono">${precioM2.toLocaleString('es')} €/m²</span>` : ''}
+            ${p.habitaciones ? `<span>${p.habitaciones} hab.</span>` : ''}
+          </div>
+        </div>
+        <!-- Score circle -->
+        <div class="relative flex-shrink-0 w-12 h-12">
+          <svg viewBox="0 0 36 36" class="w-12 h-12 -rotate-90">
+            <circle cx="18" cy="18" r="15.5" fill="none" stroke="#e5e7eb" stroke-width="2.5"/>
+            <circle cx="18" cy="18" r="15.5" fill="none" stroke="${descartado ? '#9ca3af' : (score >= 7 ? '#16a34a' : score >= 4 ? '#d97706' : '#6b7280')}"
+              stroke-width="2.5" stroke-dasharray="97.4" stroke-dashoffset="${97.4 - (97.4 * score / 10)}"
+              stroke-linecap="round" class="score-ring"/>
+          </svg>
+          <span class="absolute inset-0 flex items-center justify-center text-xs font-bold ${descartado ? 'text-gray-400' : 'text-navy-900'}">${stats.answered > 0 ? score.toFixed(1) : '—'}</span>
+        </div>
+      </div>
+      <!-- Progress -->
+      <div class="mt-3">
+        <div class="flex justify-between text-xs text-gray-400 mb-1">
+          <span>${stats.answered} / ${TOTAL_ITEMS} ítems revisados</span>
+          <span>${pct}%</span>
+        </div>
+        <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div class="h-full ${descartado ? 'bg-gray-400' : 'bg-navy-700'} rounded-full prog-bar" style="width:${pct}%"></div>
+        </div>
+      </div>
+      <!-- Status summary -->
+      <div class="flex gap-2 mt-2">
+        <span class="text-xs bg-green-50 text-green-700 font-medium px-2 py-0.5 rounded-full">✓ ${stats.ok}</span>
+        <span class="text-xs bg-red-50 text-red-700 font-medium px-2 py-0.5 rounded-full">✗ ${stats.bad}</span>
+        <span class="text-xs bg-amber-50 text-amber-700 font-medium px-2 py-0.5 rounded-full">? ${stats.pend}</span>
+      </div>
+    </div>
+    <!-- Actions row -->
+    <div class="border-t border-gray-100 flex divide-x divide-gray-100">
+      <button onclick="selectAndGo('${p.id}')" class="flex-1 py-2.5 text-xs font-semibold text-navy-700 active:bg-gray-50 transition-colors">
+        📝 Ver checklist
+      </button>
+      <button onclick="editPiso('${p.id}')" class="flex-1 py-2.5 text-xs font-semibold text-gray-500 active:bg-gray-50 transition-colors">
+        ✏️ Editar
+      </button>
+      <button onclick="showDeleteModal('${p.id}')" class="flex-1 py-2.5 text-xs font-semibold text-red-400 active:bg-red-50 transition-colors">
+        🗑️ Borrar
+      </button>
+    </div>
+  </div>
+  `;
 }
 
 function selectPiso(id) {
