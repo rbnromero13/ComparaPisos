@@ -115,6 +115,17 @@ tailwind.config = {
       <button onclick="showNewPisoModal()" class="mt-4 w-full bg-navy-900 text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-transform shadow-md no-print">
         <span class="text-gold-400 text-lg">+</span> Añadir piso
       </button>
+      <!-- Backup / restore -->
+      <div class="mt-3 flex gap-3 no-print">
+        <button onclick="exportData()" class="flex-1 bg-white border border-gray-200 text-navy-800 font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1.5 text-sm active:scale-95 transition-transform">
+          ⬇️ Exportar datos
+        </button>
+        <button onclick="triggerImport()" class="flex-1 bg-white border border-gray-200 text-navy-800 font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1.5 text-sm active:scale-95 transition-transform">
+          ⬆️ Importar datos
+        </button>
+        <input type="file" id="import-file" accept="application/json,.json" class="hidden" onchange="handleImportFile(event)">
+      </div>
+      <p class="mt-2 text-xs text-gray-400 text-center no-print">Exporta un archivo de respaldo o impórtalo en otro dispositivo. Al importar, los datos se fusionan con los existentes.</p>
     </div>
 
     <!-- ===== PAGE: CHECKLIST ===== -->
@@ -242,6 +253,15 @@ tailwind.config = {
   </div>
 </div>
 
+<!-- ===== MODAL: RESULTADO IMPORTACIÓN ===== -->
+<div id="modal-import" class="fixed inset-0 z-50 hidden items-end justify-center bg-black/50 backdrop-blur-sm no-print">
+  <div class="bg-white rounded-t-2xl w-full max-w-lg p-6 pb-8 shadow-2xl">
+    <h2 class="font-bold text-navy-900 text-lg mb-2" id="import-title">Importación completada</h2>
+    <p class="text-gray-600 text-sm mb-5" id="import-msg"></p>
+    <button onclick="closeImportModal()" class="w-full py-3 rounded-xl bg-navy-900 text-white font-semibold text-sm">Entendido</button>
+  </div>
+</div>
+
 <!-- ===== MODAL: CONFIRMAR BORRAR ===== -->
 <div id="modal-delete" class="fixed inset-0 z-50 hidden items-end justify-center bg-black/50 backdrop-blur-sm no-print">
   <div class="bg-white rounded-t-2xl w-full max-w-lg p-6 pb-8 shadow-2xl">
@@ -279,6 +299,9 @@ const CHECKLIST = [
     id: 'interior', icon: '🛋️', title: 'Interior del piso',
     subtitle: 'Humedades, espacios y acabados',
     items: [
+      { id: 'i_cocina', label: 'Cocina reformada', hint: 'Si no lo está, prever coste de reforma' },
+      { id: 'i_bano', label: 'Baño reformado', hint: 'Si no lo está, prever coste de reforma' },
+      { id: 'i_comedor', label: 'Comedor reformado', hint: 'Si no lo está, prever coste de reforma' },
       { id: 'i1', label: 'Sin humedades en techos y paredes', hint: 'Revisar baños, cocina y esquinas exteriores' },
       { id: 'i2', label: 'Sin grietas o fisuras', hint: '' },
       { id: 'i3', label: 'Ventanas con doble acristalamiento', hint: 'Simple = frío, ruido y gasto energético' },
@@ -1108,6 +1131,134 @@ function showToast(msg) {
 }
 
 // ============================================================
+// BACKUP: EXPORT / IMPORT (con fusión)
+// ============================================================
+function exportData() {
+  const payload = {
+    app: 'checklist-pisos',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    pisos: pisos,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `checklist-pisos-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('⬇️ Datos exportados');
+}
+
+function triggerImport() {
+  document.getElementById('import-file').click();
+}
+
+function handleImportFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      const incoming = Array.isArray(data) ? data : data.pisos;
+      if (!Array.isArray(incoming)) throw new Error('Formato no reconocido');
+      const result = mergePisos(incoming);
+      save();
+      renderPisosList();
+      showImportModal(result);
+    } catch (err) {
+      showImportModal({ error: 'El archivo no es un respaldo válido de Checklist Pisos.' });
+    }
+    // Reset input so el mismo archivo puede reimportarse
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
+// Fusiona la lista entrante con la actual.
+// - Piso nuevo (id no existe) → se añade
+// - Piso existente (mismo id) → se fusionan sus checks/valoración campo a campo,
+//   dando prioridad al dato con contenido (no se pierde información de ninguno)
+function mergePisos(incoming) {
+  let added = 0, merged = 0;
+  incoming.forEach(inc => {
+    if (!inc || !inc.id) return;
+    const existing = getPiso(inc.id);
+    if (!existing) {
+      pisos.push(inc);
+      added++;
+    } else {
+      mergeOnePiso(existing, inc);
+      merged++;
+    }
+  });
+  return { added, merged, total: incoming.length };
+}
+
+function mergeOnePiso(target, source) {
+  // Datos básicos: se rellenan solo si el destino está vacío
+  ['direccion','precio','metros','habitaciones','anyo','notas'].forEach(k => {
+    if (!target[k] && source[k]) target[k] = source[k];
+  });
+  // Checks: fusión por ítem
+  target.checks = target.checks || {};
+  const sChecks = source.checks || {};
+  Object.keys(sChecks).forEach(itemId => {
+    const t = target.checks[itemId] || {};
+    const s = sChecks[itemId] || {};
+    target.checks[itemId] = {
+      // status/energyLetter: si el destino no tiene, coge el de origen
+      status: t.status || s.status || '',
+      ...(('energyLetter' in t) || ('energyLetter' in s)
+          ? { energyLetter: t.energyLetter || s.energyLetter || '' } : {}),
+      // notas: si ambas existen y son distintas, se concatenan
+      note: mergeNotes(t.note, s.note),
+    };
+  });
+  // Valoración: rellenar campos vacíos
+  target.valoracion = target.valoracion || {};
+  const sv = source.valoracion || {};
+  ['nota','decision'].forEach(k => {
+    if (!target.valoracion[k] && sv[k]) target.valoracion[k] = sv[k];
+  });
+  target.valoracion.observaciones = mergeNotes(target.valoracion.observaciones, sv.observaciones);
+}
+
+function mergeNotes(a, b) {
+  a = (a || '').trim(); b = (b || '').trim();
+  if (!a) return b;
+  if (!b || a === b) return a;
+  if (a.includes(b)) return a;
+  return `${a} | ${b}`;
+}
+
+function showImportModal(result) {
+  const title = document.getElementById('import-title');
+  const msg = document.getElementById('import-msg');
+  if (result.error) {
+    title.textContent = '⚠️ No se pudo importar';
+    msg.textContent = result.error;
+  } else {
+    title.textContent = '✅ Importación completada';
+    const parts = [];
+    if (result.added) parts.push(`${result.added} piso${result.added !== 1 ? 's' : ''} nuevo${result.added !== 1 ? 's' : ''} añadido${result.added !== 1 ? 's' : ''}`);
+    if (result.merged) parts.push(`${result.merged} piso${result.merged !== 1 ? 's' : ''} fusionado${result.merged !== 1 ? 's' : ''} con los datos existentes`);
+    msg.textContent = parts.length ? parts.join(' y ') + '.' : 'No había datos nuevos que importar.';
+  }
+  const m = document.getElementById('modal-import');
+  m.classList.remove('hidden'); m.classList.add('flex');
+}
+
+function closeImportModal() {
+  const m = document.getElementById('modal-import');
+  m.classList.add('hidden'); m.classList.remove('flex');
+}
+
+// ============================================================
 // INIT
 // ============================================================
 function init() {
@@ -1117,6 +1268,7 @@ function init() {
   document.getElementById('modal-piso').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
   document.getElementById('modal-delete').addEventListener('click', e => { if (e.target === e.currentTarget) closeDeleteModal(); });
   document.getElementById('modal-aluminosis').addEventListener('click', e => { if (e.target === e.currentTarget) closeAluminosisModal(); });
+  document.getElementById('modal-import').addEventListener('click', e => { if (e.target === e.currentTarget) closeImportModal(); });
 }
 
 init();
