@@ -1200,9 +1200,10 @@ function mergePisos(incoming) {
 }
 
 function mergeOnePiso(target, source) {
-  // Datos básicos: se rellenan solo si el destino está vacío
+  // Datos básicos: ante conflicto prevalece el importado (lo nuevo);
+  // si el importado viene vacío, se conserva lo que ya había
   ['direccion','precio','metros','habitaciones','anyo','notas'].forEach(k => {
-    if (!target[k] && source[k]) target[k] = source[k];
+    if (source[k]) target[k] = source[k];
   });
   // Checks: fusión por ítem
   target.checks = target.checks || {};
@@ -1211,19 +1212,19 @@ function mergeOnePiso(target, source) {
     const t = target.checks[itemId] || {};
     const s = sChecks[itemId] || {};
     target.checks[itemId] = {
-      // status/energyLetter: si el destino no tiene, coge el de origen
-      status: t.status || s.status || '',
+      // status/energyLetter: prevalece el importado si trae valor
+      status: s.status || t.status || '',
       ...(('energyLetter' in t) || ('energyLetter' in s)
-          ? { energyLetter: t.energyLetter || s.energyLetter || '' } : {}),
+          ? { energyLetter: s.energyLetter || t.energyLetter || '' } : {}),
       // notas: si ambas existen y son distintas, se concatenan
       note: mergeNotes(t.note, s.note),
     };
   });
-  // Valoración: rellenar campos vacíos
+  // Valoración: prevalece el importado si trae valor
   target.valoracion = target.valoracion || {};
   const sv = source.valoracion || {};
   ['nota','decision'].forEach(k => {
-    if (!target.valoracion[k] && sv[k]) target.valoracion[k] = sv[k];
+    if (sv[k]) target.valoracion[k] = sv[k];
   });
   target.valoracion.observaciones = mergeNotes(target.valoracion.observaciones, sv.observaciones);
 }
