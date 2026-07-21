@@ -145,6 +145,11 @@ tailwind.config = {
       <div id="comp-content" class="hidden"></div>
     </div>
 
+    <!-- ===== PAGE: CALCULADORA ===== -->
+    <div id="page-calculadora" class="page px-4 pt-4">
+      <div id="calc-content"></div>
+    </div>
+
   </main>
 
   <!-- BOTTOM TAB BAR -->
@@ -163,6 +168,11 @@ tailwind.config = {
       <button onclick="switchPage('comparativa')" class="tab-btn flex-1 flex flex-col items-center py-2.5 gap-0.5" id="tab-comparativa">
         <span class="text-xl">📊</span>
         <span class="text-xs font-medium text-gray-400 tab-label">Comparar</span>
+        <span class="tab-dot w-1 h-1 rounded-full bg-gold-400"></span>
+      </button>
+      <button onclick="switchPage('calculadora')" class="tab-btn flex-1 flex flex-col items-center py-2.5 gap-0.5" id="tab-calculadora">
+        <span class="text-xl">🧮</span>
+        <span class="text-xs font-medium text-gray-400 tab-label">Hipoteca</span>
         <span class="tab-dot w-1 h-1 rounded-full bg-gold-400"></span>
       </button>
     </div>
@@ -424,6 +434,7 @@ function switchPage(name) {
   if (name === 'checklist') renderChecklist();
   if (name === 'comparativa') renderComparativa();
   if (name === 'pisos') renderPisosList();
+  if (name === 'calculadora') renderCalculadora();
 }
 
 function updateHeaderActions() {
@@ -1286,6 +1297,365 @@ function showImportModal(result) {
 function closeImportModal() {
   const m = document.getElementById('modal-import');
   m.classList.add('hidden'); m.classList.remove('flex');
+}
+
+// ============================================================
+// CALCULADORA DE HIPOTECA Y GASTOS
+// ============================================================
+// Parámetros por defecto (editables por el usuario en la interfaz).
+// Se guardan en localStorage para no reintroducirlos cada vez.
+const CALC_DEFAULTS = {
+  precio: 250000,        // precio del piso
+  pctFinanciado: 80,     // % del precio que financia el banco
+  plazoAnos: 30,         // plazo de la hipoteca en años
+  interes: 3.0,          // tipo de interés nominal anual (%)
+  itp: 7.5,              // Impuesto de Transmisiones Patrimoniales (%)
+  notaria: 2500,         // notaría + registro + escrituras (aprox)
+  tasacion: 600,         // tasación (500–700 aprox)
+  gestionCredito: 3000,  // gestoría / intermediario de crédito (Kíron, Trioteca…)
+  inmoPct: 3,            // honorarios inmobiliaria (% sobre precio, +IVA)
+  incluirInmo: true,     // si se aplican honorarios de inmobiliaria
+  // ── Parámetros propios del cálculo de la TAE (metodología Banco de España) ──
+  taeGastosOrigen: 3200,   // gastos en origen/constitución que afectan a la TAE (€)
+  taeGastoPeriodico: 0,    // gasto periódico recurrente (€), p.ej. comisión mantenimiento
+  taePeriodicidadMeses: 12,// cada cuántos meses se paga el gasto periódico (12 = anual)
+};
+
+let calcState = JSON.parse(localStorage.getItem('calcState') || 'null') || { ...CALC_DEFAULTS };
+let calcPisoId = localStorage.getItem('calcPisoId') || null; // piso vinculado (opcional)
+let showTaePanel = false; // panel desplegable de detalle de la TAE
+
+function saveCalc() {
+  localStorage.setItem('calcState', JSON.stringify(calcState));
+  localStorage.setItem('calcPisoId', calcPisoId || '');
+}
+
+// ── Matemáticas financieras ───────────────────────────────────
+// Cuota mensual (sistema francés). i = tipo mensual, n = nº meses
+function cuotaMensual(capital, tasaAnualPct, meses) {
+  const i = (tasaAnualPct / 100) / 12;
+  if (i === 0) return capital / meses;
+  return capital * (i * Math.pow(1 + i, meses)) / (Math.pow(1 + i, meses) - 1);
+}
+
+// TAE: tasa anual equivalente que iguala el capital NETO recibido
+// (capital − gastos en origen) con el valor actual de todos los pagos
+// (cuotas + gastos periódicos). Misma metodología que el simulador del
+// Banco de España. Se resuelve por bisección sobre la tasa mensual.
+function calcularTAE(capital, gastosOrigen, gastoPeriodico, periodMeses, cuota, meses) {
+  const neto = capital - gastosOrigen; // lo que realmente recibe el prestatario
+  if (neto <= 0 || cuota <= 0 || meses <= 0) return 0;
+
+  // f(i) = neto − Σ pago_m / (1+i)^m
+  // donde pago_m = cuota (+ gasto periódico en los meses que corresponda)
+  const f = (i) => {
+    let pv = 0;
+    for (let m = 1; m <= meses; m++) {
+      let pago = cuota;
+      if (periodMeses > 0 && gastoPeriodico > 0 && m % periodMeses === 0) pago += gastoPeriodico;
+      pv += pago / Math.pow(1 + i, m);
+    }
+    return neto - pv;
+  };
+
+  // Bisección robusta sobre la tasa mensual, detectando el cambio de signo
+  let lo = 1e-9, hi = 1.0;
+  let flo = f(lo), fhi = f(hi);
+  if (flo * fhi > 0) return 0;
+  for (let k = 0; k < 200; k++) {
+    const mid = (lo + hi) / 2;
+    const fmid = f(mid);
+    if (Math.abs(fmid) < 1e-6) { lo = hi = mid; break; }
+    if (flo * fmid < 0) { hi = mid; fhi = fmid; }
+    else { lo = mid; flo = fmid; }
+  }
+  const iMensual = (lo + hi) / 2;
+  return (Math.pow(1 + iMensual, 12) - 1) * 100;
+}
+
+function computeCalc(s) {
+  const precio = num(s.precio);
+  const capital = precio * (num(s.pctFinanciado) / 100);      // importe financiado
+  const meses = Math.round(num(s.plazoAnos) * 12);
+
+  // Gastos de compra
+  const gastoITP = precio * (num(s.itp) / 100);
+  const gastoNotaria = num(s.notaria);
+  const gastoTasacion = num(s.tasacion);
+  const gastoGestion = num(s.gestionCredito);
+  const gastoInmo = s.incluirInmo ? precio * (num(s.inmoPct) / 100) * 1.21 : 0; // +21% IVA
+
+  const totalGastos = gastoITP + gastoNotaria + gastoTasacion + gastoGestion + gastoInmo;
+
+  // Entrada necesaria = parte no financiada + todos los gastos
+  const partePropia = precio - capital;
+  const entradaNecesaria = partePropia + totalGastos;
+
+  // Cuota mensual
+  const cuota = cuotaMensual(capital, num(s.interes), meses);
+
+  // Intereses totales y coste total del préstamo
+  const totalPagadoPrestamo = cuota * meses;
+  const interesesTotales = totalPagadoPrestamo - capital;
+
+  // Gastos de constitución de la hipoteca a efectos de TAE.
+  // Editables desde el panel de TAE (metodología Banco de España).
+  const taeGastosOrigen = num(s.taeGastosOrigen);
+  const taeGastoPeriodico = num(s.taeGastoPeriodico);
+  const taePeriodicidad = num(s.taePeriodicidadMeses);
+  const tae = calcularTAE(capital, taeGastosOrigen, taeGastoPeriodico, taePeriodicidad, cuota, meses);
+
+  // Coste total de la operación (lo que sale del bolsillo en toda la vida)
+  const costeTotalOperacion = entradaNecesaria + totalPagadoPrestamo;
+
+  return {
+    precio, capital, meses, partePropia,
+    gastoITP, gastoNotaria, gastoTasacion, gastoGestion, gastoInmo, totalGastos,
+    entradaNecesaria, cuota, totalPagadoPrestamo, interesesTotales, tae,
+    costeTotalOperacion,
+  };
+}
+
+function num(v) { const n = parseFloat(v); return isFinite(n) ? n : 0; }
+function eur(n) { return '€' + Math.round(n).toLocaleString('es'); }
+function eur2(n) { return '€' + n.toLocaleString('es', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+// ── Render ────────────────────────────────────────────────────
+function renderCalculadora() {
+  const c = document.getElementById('calc-content');
+  const r = computeCalc(calcState);
+  const s = calcState;
+
+  // Opciones de pisos para vincular
+  const pisoOptions = pisos.map(p =>
+    `<option value="${p.id}" ${calcPisoId === p.id ? 'selected' : ''}>${p.direccion}${p.precio ? ' — €'+Number(p.precio).toLocaleString('es') : ''}</option>`
+  ).join('');
+
+  c.innerHTML = `
+    <!-- Selector de piso -->
+    <div class="bg-white rounded-2xl shadow-sm p-4 mb-3">
+      <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Cargar precio de un piso</label>
+      <select id="calc-piso-select" onchange="onCalcPisoSelect(this.value)"
+        class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700 bg-white">
+        <option value="">— Introducir precio manualmente —</option>
+        ${pisoOptions}
+      </select>
+    </div>
+
+    <!-- RESULTADOS destacados -->
+    <div class="bg-navy-900 text-white rounded-2xl p-4 mb-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-navy-800 rounded-xl p-3">
+          <p class="text-xs text-blue-200">Cuota mensual</p>
+          <p class="text-2xl font-black text-gold-400">${eur(r.cuota)}</p>
+          <p class="text-xs text-blue-200 mt-0.5">durante ${num(s.plazoAnos)} años</p>
+        </div>
+        <div class="bg-navy-800 rounded-xl p-3">
+          <p class="text-xs text-blue-200">Entrada necesaria</p>
+          <p class="text-2xl font-black text-white">${eur(r.entradaNecesaria)}</p>
+          <p class="text-xs text-blue-200 mt-0.5">ahorro que necesitas</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-2 mt-3">
+        <div class="text-center">
+          <p class="text-xs text-blue-200">TAE aprox.</p>
+          <p class="text-base font-bold text-white">${r.tae.toFixed(2)}%</p>
+        </div>
+        <div class="text-center border-x border-navy-700">
+          <p class="text-xs text-blue-200">Gastos compra</p>
+          <p class="text-base font-bold text-white">${eur(r.totalGastos)}</p>
+        </div>
+        <div class="text-center">
+          <p class="text-xs text-blue-200">Intereses total</p>
+          <p class="text-base font-bold text-white">${eur(r.interesesTotales)}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- PARÁMETROS EDITABLES -->
+    <div class="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <p class="font-bold text-navy-900 text-sm">💶 Datos del piso e hipoteca</p>
+      </div>
+      <div class="p-4 space-y-3">
+        ${calcField('Precio del piso (€)', 'precio', s.precio, 'number')}
+        <div class="grid grid-cols-2 gap-3">
+          ${calcField('% financiado por banco', 'pctFinanciado', s.pctFinanciado, 'number', '%')}
+          ${calcField('Plazo (años)', 'plazoAnos', s.plazoAnos, 'number')}
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          ${calcField('Interés nominal anual', 'interes', s.interes, 'number', '%')}
+          <div>
+            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Importe financiado</label>
+            <div class="mt-1 w-full border border-gray-100 bg-gray-50 rounded-lg px-3 py-2.5 text-sm font-mono text-navy-800">${eur(r.capital)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL TAE DESPLEGABLE -->
+    <div class="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden">
+      <button onclick="toggleTaePanel()" class="w-full flex items-center gap-3 px-4 py-3 text-left">
+        <span class="text-lg">📈</span>
+        <div class="flex-1 min-w-0">
+          <p class="font-bold text-navy-900 text-sm">Detalle del cálculo de la TAE</p>
+          <p class="text-xs text-gray-400 mt-0.5">Metodología Banco de España · actual: <strong class="text-navy-700">${r.tae.toFixed(2)}%</strong></p>
+        </div>
+        <svg class="chevron ${showTaePanel ? 'open' : ''} w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+      <div class="section-body ${showTaePanel ? 'open' : ''}">
+        <div class="border-t border-gray-100 p-4 space-y-3">
+          <p class="text-xs text-gray-500 bg-blue-50 rounded-lg p-3">
+            La TAE incluye el interés nominal (${num(s.interes)}%) más los gastos ligados al préstamo. Estos son los valores que usa el cálculo; edítalos según tu oferta bancaria.
+          </p>
+          ${calcField('Gastos en origen / constitución', 'taeGastosOrigen', s.taeGastosOrigen, 'number', '€', 'aprox')}
+          <p class="text-xs text-gray-400 -mt-2">Comisión de apertura, tasación, gestoría… pagados una sola vez al firmar.</p>
+          <div class="grid grid-cols-2 gap-3">
+            ${calcField('Gasto periódico', 'taeGastoPeriodico', s.taeGastoPeriodico, 'number', '€')}
+            <div>
+              <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Periodicidad</label>
+              <select onchange="setCalc('taePeriodicidadMeses', this.value)"
+                class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700 bg-white">
+                <option value="1" ${num(s.taePeriodicidadMeses)===1?'selected':''}>Mensual</option>
+                <option value="3" ${num(s.taePeriodicidadMeses)===3?'selected':''}>Trimestral</option>
+                <option value="6" ${num(s.taePeriodicidadMeses)===6?'selected':''}>Semestral</option>
+                <option value="12" ${num(s.taePeriodicidadMeses)===12?'selected':''}>Anual</option>
+              </select>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 -mt-1">Comisión de mantenimiento, seguros vinculados… pagados de forma recurrente.</p>
+          <div class="bg-navy-900 text-white rounded-xl p-3 flex items-center justify-between">
+            <span class="text-sm">TAE resultante</span>
+            <span class="text-xl font-black text-gold-400">${r.tae.toFixed(2)}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GASTOS -->
+    <div class="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <p class="font-bold text-navy-900 text-sm">🧾 Gastos de compra</p>
+        <p class="text-xs text-gray-400 mt-0.5">Valores aproximados — edítalos cuando tengas los reales</p>
+      </div>
+      <div class="p-4 space-y-3">
+        ${calcField('ITP — Impuesto Transmisiones', 'itp', s.itp, 'number', '%')}
+        <p class="text-xs text-gray-400 -mt-2">= ${eur(r.gastoITP)} sobre el precio</p>
+        ${calcField('Notaría + Registro + Escrituras', 'notaria', s.notaria, 'number', '€', 'aprox')}
+        ${calcField('Tasación', 'tasacion', s.tasacion, 'number', '€', 'aprox')}
+        ${calcField('Gestión intermediario crédito', 'gestionCredito', s.gestionCredito, 'number', '€', 'aprox')}
+        <div class="pt-2 border-t border-gray-100">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="calc-incluir-inmo" ${s.incluirInmo ? 'checked' : ''} onchange="setCalc('incluirInmo', this.checked)" class="w-4 h-4 rounded accent-navy-900">
+            <span class="text-sm font-medium text-gray-700">Incluir honorarios de inmobiliaria</span>
+          </label>
+          ${s.incluirInmo ? `
+            <div class="mt-2">
+              ${calcField('Honorarios inmobiliaria (+21% IVA)', 'inmoPct', s.inmoPct, 'number', '%')}
+              <p class="text-xs text-gray-400 mt-1">= ${eur(r.gastoInmo)} (IVA incluido)</p>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+
+    <!-- DESGLOSE -->
+    <div class="bg-white rounded-2xl shadow-sm mb-3 overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <p class="font-bold text-navy-900 text-sm">📋 Desglose completo</p>
+      </div>
+      <div class="p-4 text-sm">
+        ${row('Precio del piso', eur(r.precio))}
+        ${row('ITP ('+num(s.itp)+'%)', eur(r.gastoITP))}
+        ${row('Notaría, registro, escrituras', eur(r.gastoNotaria))}
+        ${row('Tasación', eur(r.gastoTasacion))}
+        ${row('Gestión intermediario crédito', eur(r.gastoGestion))}
+        ${s.incluirInmo ? row('Honorarios inmobiliaria (IVA incl.)', eur(r.gastoInmo)) : ''}
+        <div class="border-t border-gray-200 my-2"></div>
+        ${row('<strong>Total gastos de compra</strong>', '<strong>'+eur(r.totalGastos)+'</strong>')}
+        <div class="border-t border-gray-200 my-2"></div>
+        ${row('Aportación propia (20%)', eur(r.partePropia))}
+        ${row('<strong>Entrada necesaria (ahorro)</strong>', '<strong class="text-navy-900">'+eur(r.entradaNecesaria)+'</strong>')}
+        <div class="border-t border-gray-200 my-2"></div>
+        ${row('Importe financiado', eur(r.capital))}
+        ${row('Cuota mensual', '<strong>'+eur(r.cuota)+'</strong>')}
+        ${row('Nº de cuotas', r.meses + ' meses')}
+        ${row('Total intereses', eur(r.interesesTotales))}
+        ${row('Total pagado al banco', eur(r.totalPagadoPrestamo))}
+        ${row('TAE aproximada', '<strong>'+r.tae.toFixed(2)+'%</strong>')}
+        <div class="border-t border-gray-200 my-2"></div>
+        ${row('<strong>Coste total de la operación</strong>', '<strong class="text-navy-900">'+eur(r.costeTotalOperacion)+'</strong>')}
+        <p class="text-xs text-gray-400 mt-2">Coste total = entrada necesaria + todo lo que pagarás al banco durante ${num(s.plazoAnos)} años.</p>
+      </div>
+    </div>
+
+    <!-- Reset + disclaimer -->
+    <button onclick="resetCalc()" class="w-full py-2.5 rounded-xl border border-gray-200 text-gray-500 font-semibold text-sm active:scale-95 transition-transform mb-2">
+      ↺ Restaurar valores por defecto
+    </button>
+    <p class="text-xs text-gray-400 text-center mb-2">
+      Cálculos orientativos. La TAE es una aproximación; la definitiva depende de comisiones, seguros vinculados y condiciones del banco. No es asesoramiento financiero.
+    </p>
+  `;
+}
+
+function calcField(label, key, value, type, suffix, badge) {
+  return `
+  <div>
+    <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+      ${label}
+      ${badge ? `<span class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full normal-case font-medium">${badge}</span>` : ''}
+    </label>
+    <div class="mt-1 relative">
+      <input type="${type}" value="${value}" inputmode="decimal"
+        onchange="setCalc('${key}', this.value)"
+        class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700 ${suffix ? 'pr-8' : ''}">
+      ${suffix ? `<span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">${suffix}</span>` : ''}
+    </div>
+  </div>
+  `;
+}
+
+function row(label, value) {
+  return `<div class="flex justify-between py-1"><span class="text-gray-600">${label}</span><span class="text-gray-900 font-mono">${value}</span></div>`;
+}
+
+function setCalc(key, value) {
+  if (key === 'incluirInmo') {
+    calcState.incluirInmo = value;
+  } else {
+    calcState[key] = value;
+  }
+  saveCalc();
+  renderCalculadora();
+}
+
+function toggleTaePanel() {
+  showTaePanel = !showTaePanel;
+  renderCalculadora();
+}
+
+function onCalcPisoSelect(id) {
+  calcPisoId = id || null;
+  if (id) {
+    const p = getPiso(id);
+    if (p && p.precio) calcState.precio = Number(p.precio);
+  }
+  saveCalc();
+  renderCalculadora();
+}
+
+function resetCalc() {
+  calcState = { ...CALC_DEFAULTS };
+  // conservar el precio del piso vinculado si lo hay
+  if (calcPisoId) {
+    const p = getPiso(calcPisoId);
+    if (p && p.precio) calcState.precio = Number(p.precio);
+  }
+  saveCalc();
+  renderCalculadora();
 }
 
 // ============================================================

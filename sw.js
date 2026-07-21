@@ -6,10 +6,10 @@
 // usuarios (o al tuyo) a descargar la versión nueva en vez de
 // seguir usando la copia guardada en caché.
 //
-//   const VERSION = 'v1';   →   const VERSION = 'v2';
+//   const VERSION = 'v1';   →   const VERSION = 'v5';
 //
 // ============================================================
-const VERSION = 'v4';
+const VERSION = 'v6';
 const CACHE_NAME = `checklist-pisos-${VERSION}`;
 
 const ASSETS = [
