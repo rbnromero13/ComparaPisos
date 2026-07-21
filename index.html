@@ -1316,12 +1316,18 @@ const CALC_DEFAULTS = {
   inmoPct: 3,            // honorarios inmobiliaria (% sobre precio, +IVA)
   incluirInmo: true,     // si se aplican honorarios de inmobiliaria
   // ── Parámetros propios del cálculo de la TAE (metodología Banco de España) ──
-  taeGastosOrigen: 3200,   // gastos en origen/constitución que afectan a la TAE (€)
-  taeGastoPeriodico: 0,    // gasto periódico recurrente (€), p.ej. comisión mantenimiento
-  taePeriodicidadMeses: 12,// cada cuántos meses se paga el gasto periódico (12 = anual)
+  // ── Componentes de la TAE (metodología Banco de España) ──
+  // Gastos en origen (pago único al firmar). Cada uno con casilla on/off.
+  taeAperturaPct: 0,      taeAperturaOn: false,   // comisión de apertura (% del capital)
+  taeTasacionOn: true,    // tasación (reutiliza el valor de "tasación" de gastos de compra)
+  taeGestoriaBanco: 2600, taeGestoriaOn: true,    // gestoría del banco / constitución
+  // Gastos periódicos anuales. Cada uno con casilla on/off.
+  taeSeguroHogar: 200,    taeSeguroHogarOn: false,
+  taeSeguroVida: 300,     taeSeguroVidaOn: false,
+  taeMantenimiento: 0,    taeMantenimientoOn: false, // comisión mantenimiento cuenta (anual)
 };
 
-let calcState = JSON.parse(localStorage.getItem('calcState') || 'null') || { ...CALC_DEFAULTS };
+let calcState = { ...CALC_DEFAULTS, ...(JSON.parse(localStorage.getItem('calcState') || 'null') || {}) };
 let calcPisoId = localStorage.getItem('calcPisoId') || null; // piso vinculado (opcional)
 let showTaePanel = false; // panel desplegable de detalle de la TAE
 
@@ -1399,10 +1405,19 @@ function computeCalc(s) {
   const interesesTotales = totalPagadoPrestamo - capital;
 
   // Gastos de constitución de la hipoteca a efectos de TAE.
-  // Editables desde el panel de TAE (metodología Banco de España).
-  const taeGastosOrigen = num(s.taeGastosOrigen);
-  const taeGastoPeriodico = num(s.taeGastoPeriodico);
-  const taePeriodicidad = num(s.taePeriodicidadMeses);
+  // Se construyen desde los componentes activados en el panel de TAE.
+  const compApertura = s.taeAperturaOn ? capital * (num(s.taeAperturaPct) / 100) : 0;
+  const compTasacion = s.taeTasacionOn ? gastoTasacion : 0; // reutiliza la tasación ya introducida
+  const compGestoria = s.taeGestoriaOn ? num(s.taeGestoriaBanco) : 0;
+  const taeGastosOrigen = compApertura + compTasacion + compGestoria;
+
+  // Gastos periódicos anuales activados
+  const compSeguroHogar = s.taeSeguroHogarOn ? num(s.taeSeguroHogar) : 0;
+  const compSeguroVida = s.taeSeguroVidaOn ? num(s.taeSeguroVida) : 0;
+  const compMantenimiento = s.taeMantenimientoOn ? num(s.taeMantenimiento) : 0;
+  const taeGastoPeriodico = compSeguroHogar + compSeguroVida + compMantenimiento; // suma anual
+  const taePeriodicidad = 12; // anual
+
   const tae = calcularTAE(capital, taeGastosOrigen, taeGastoPeriodico, taePeriodicidad, cuota, meses);
 
   // Coste total de la operación (lo que sale del bolsillo en toda la vida)
@@ -1413,6 +1428,10 @@ function computeCalc(s) {
     gastoITP, gastoNotaria, gastoTasacion, gastoGestion, gastoInmo, totalGastos,
     entradaNecesaria, cuota, totalPagadoPrestamo, interesesTotales, tae,
     costeTotalOperacion,
+    // desglose TAE
+    taeGastosOrigen, taeGastoPeriodico,
+    compApertura, compTasacion, compGestoria,
+    compSeguroHogar, compSeguroVida, compMantenimiento,
   };
 }
 
@@ -1506,26 +1525,41 @@ function renderCalculadora() {
         </svg>
       </button>
       <div class="section-body ${showTaePanel ? 'open' : ''}">
-        <div class="border-t border-gray-100 p-4 space-y-3">
+        <div class="border-t border-gray-100 p-4 space-y-4">
           <p class="text-xs text-gray-500 bg-blue-50 rounded-lg p-3">
-            La TAE incluye el interés nominal (${num(s.interes)}%) más los gastos ligados al préstamo. Estos son los valores que usa el cálculo; edítalos según tu oferta bancaria.
+            La TAE parte del interés nominal (${num(s.interes)}%) y le suma los gastos ligados al préstamo. Activa los que apliquen en tu oferta y ajusta los importes.
           </p>
-          ${calcField('Gastos en origen / constitución', 'taeGastosOrigen', s.taeGastosOrigen, 'number', '€', 'aprox')}
-          <p class="text-xs text-gray-400 -mt-2">Comisión de apertura, tasación, gestoría… pagados una sola vez al firmar.</p>
-          <div class="grid grid-cols-2 gap-3">
-            ${calcField('Gasto periódico', 'taeGastoPeriodico', s.taeGastoPeriodico, 'number', '€')}
-            <div>
-              <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Periodicidad</label>
-              <select onchange="setCalc('taePeriodicidadMeses', this.value)"
-                class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-700 bg-white">
-                <option value="1" ${num(s.taePeriodicidadMeses)===1?'selected':''}>Mensual</option>
-                <option value="3" ${num(s.taePeriodicidadMeses)===3?'selected':''}>Trimestral</option>
-                <option value="6" ${num(s.taePeriodicidadMeses)===6?'selected':''}>Semestral</option>
-                <option value="12" ${num(s.taePeriodicidadMeses)===12?'selected':''}>Anual</option>
-              </select>
+
+          <!-- Gastos en origen -->
+          <div>
+            <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Gastos en origen (pago único al firmar)</p>
+            <div class="space-y-2">
+              ${taeCostRow('Comisión de apertura', 'taeAperturaOn', s.taeAperturaOn, 'taeAperturaPct', s.taeAperturaPct, '%', r.compApertura)}
+              ${taeCostRow('Tasación', 'taeTasacionOn', s.taeTasacionOn, null, r.gastoTasacion, '€', r.compTasacion, 'Usa el valor de «Tasación» de los gastos de compra')}
+              ${taeCostRow('Gestoría del banco', 'taeGestoriaOn', s.taeGestoriaOn, 'taeGestoriaBanco', s.taeGestoriaBanco, '€', r.compGestoria)}
+            </div>
+            <div class="flex justify-between mt-2 pt-2 border-t border-gray-100 text-sm">
+              <span class="text-gray-600">Total en origen</span>
+              <span class="font-mono font-semibold text-navy-900">${eur(r.taeGastosOrigen)}</span>
             </div>
           </div>
-          <p class="text-xs text-gray-400 -mt-1">Comisión de mantenimiento, seguros vinculados… pagados de forma recurrente.</p>
+
+          <!-- Gastos periódicos -->
+          <div>
+            <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Gastos periódicos (anuales, recurrentes)</p>
+            <div class="space-y-2">
+              ${taeCostRow('Seguro de hogar', 'taeSeguroHogarOn', s.taeSeguroHogarOn, 'taeSeguroHogar', s.taeSeguroHogar, '€/año', r.compSeguroHogar)}
+              ${taeCostRow('Seguro de vida', 'taeSeguroVidaOn', s.taeSeguroVidaOn, 'taeSeguroVida', s.taeSeguroVida, '€/año', r.compSeguroVida)}
+              ${taeCostRow('Comisión mantenimiento cuenta', 'taeMantenimientoOn', s.taeMantenimientoOn, 'taeMantenimiento', s.taeMantenimiento, '€/año', r.compMantenimiento)}
+            </div>
+            <div class="flex justify-between mt-2 pt-2 border-t border-gray-100 text-sm">
+              <span class="text-gray-600">Total periódico anual</span>
+              <span class="font-mono font-semibold text-navy-900">${eur(r.taeGastoPeriodico)}/año</span>
+            </div>
+          </div>
+
+          <p class="text-xs text-gray-400">Nota: los seguros vinculados son técnicamente voluntarios, pero si el banco bonifica el tipo por contratarlos, cuentan en el coste real. La notaría y el registro de la hipoteca los asume el banco desde 2019, por eso no se incluyen aquí.</p>
+
           <div class="bg-navy-900 text-white rounded-xl p-3 flex items-center justify-between">
             <span class="text-sm">TAE resultante</span>
             <span class="text-xl font-black text-gold-400">${r.tae.toFixed(2)}%</span>
@@ -1620,6 +1654,28 @@ function calcField(label, key, value, type, suffix, badge) {
 
 function row(label, value) {
   return `<div class="flex justify-between py-1"><span class="text-gray-600">${label}</span><span class="text-gray-900 font-mono">${value}</span></div>`;
+}
+
+// Fila de coste con casilla on/off + importe editable (o de solo lectura si valueKey es null).
+// computed = importe que realmente entra en el cálculo (0 si está desactivado).
+function taeCostRow(label, onKey, onVal, valueKey, value, suffix, computed, hint) {
+  const active = !!onVal;
+  const input = valueKey
+    ? `<input type="number" inputmode="decimal" value="${value}" ${active ? '' : 'disabled'}
+         onchange="setCalc('${valueKey}', this.value)"
+         class="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-navy-700 ${active ? '' : 'bg-gray-100 text-gray-400'}">`
+    : `<span class="w-24 text-right text-sm font-mono ${active ? 'text-navy-800' : 'text-gray-400'} px-2 py-1.5 bg-gray-50 rounded-lg border border-gray-100">${eur(value)}</span>`;
+  return `
+  <div class="flex items-center gap-2 ${active ? '' : 'opacity-60'}">
+    <input type="checkbox" ${active ? 'checked' : ''} onchange="setCalc('${onKey}', this.checked)" class="w-4 h-4 rounded accent-navy-900 flex-shrink-0">
+    <div class="flex-1 min-w-0">
+      <p class="text-sm text-gray-700 leading-tight">${label}</p>
+      ${hint ? `<p class="text-xs text-gray-400 leading-tight">${hint}</p>` : ''}
+    </div>
+    ${input}
+    <span class="text-xs text-gray-400 w-8 text-left flex-shrink-0">${suffix}</span>
+  </div>
+  `;
 }
 
 function setCalc(key, value) {
