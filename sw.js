@@ -9,7 +9,7 @@
 //   const VERSION = 'v1';   →   const VERSION = 'v5';
 //
 // ============================================================
-const VERSION = 'v8';
+const VERSION = 'v9';
 const CACHE_NAME = `checklist-pisos-${VERSION}`;
 
 const ASSETS = [

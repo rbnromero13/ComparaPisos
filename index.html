@@ -1315,6 +1315,8 @@ const CALC_DEFAULTS = {
   gestionCredito: 3000,  // gestoría / intermediario de crédito (Kíron, Trioteca…)
   inmoPct: 3,            // honorarios inmobiliaria (% sobre precio, +IVA)
   incluirInmo: true,     // si se aplican honorarios de inmobiliaria
+  usarPrecioAnunciado: false, // si la comisión de la inmo se calcula sobre el precio anunciado
+  precioAnunciado: 0,    // precio de salida/anunciado (base de la comisión de la inmo)
   // ── Parámetros propios del cálculo de la TAE (metodología Banco de España) ──
   // ── Componentes de la TAE (metodología Banco de España) ──
   // Gastos en origen (pago único al firmar). Cada uno con casilla on/off.
@@ -1389,7 +1391,11 @@ function computeCalc(s) {
   const gastoNotaria = num(s.notaria);
   const gastoTasacion = num(s.tasacion);
   const gastoGestion = num(s.gestionCredito);
-  const gastoInmo = s.incluirInmo ? precio * (num(s.inmoPct) / 100) * 1.21 : 0; // +21% IVA
+  // Base de la comisión de la inmobiliaria: precio anunciado si está activado
+  // (y tiene valor), en otro caso el precio de la oferta.
+  const baseInmo = (s.usarPrecioAnunciado && num(s.precioAnunciado) > 0)
+    ? num(s.precioAnunciado) : precio;
+  const gastoInmo = s.incluirInmo ? baseInmo * (num(s.inmoPct) / 100) * 1.21 : 0; // +21% IVA
 
   const totalGastos = gastoITP + gastoNotaria + gastoTasacion + gastoGestion + gastoInmo;
 
@@ -1431,7 +1437,7 @@ function computeCalc(s) {
 
   return {
     precio, capital, meses, partePropia,
-    gastoITP, gastoNotaria, gastoTasacion, gastoGestion, gastoInmo, totalGastos,
+    gastoITP, gastoNotaria, gastoTasacion, gastoGestion, gastoInmo, totalGastos, baseInmo,
     entradaNecesaria, cuota, totalPagadoPrestamo, interesesTotales, tae,
     costeTotalOperacion, totalPeriodicoVida, costeMensualEquivalente,
     // desglose TAE
@@ -1594,9 +1600,17 @@ function renderCalculadora() {
             <span class="text-sm font-medium text-gray-700">Incluir honorarios de inmobiliaria</span>
           </label>
           ${s.incluirInmo ? `
-            <div class="mt-2">
+            <div class="mt-2 space-y-2">
               ${calcField('Honorarios inmobiliaria (+21% IVA)', 'inmoPct', s.inmoPct, 'number', '%')}
-              <p class="text-xs text-gray-400 mt-1">= ${eur(r.gastoInmo)} (IVA incluido)</p>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" ${s.usarPrecioAnunciado ? 'checked' : ''} onchange="setCalc('usarPrecioAnunciado', this.checked)" class="w-4 h-4 rounded accent-navy-900 flex-shrink-0">
+                <span class="text-sm text-gray-700">Calcular la comisión sobre el precio anunciado</span>
+              </label>
+              ${s.usarPrecioAnunciado ? `
+                ${calcField('Precio anunciado (de salida)', 'precioAnunciado', s.precioAnunciado || '', 'number', '€')}
+                <p class="text-xs text-gray-400">La inmobiliaria suele cobrar su % sobre el precio de salida, no sobre tu oferta.</p>
+              ` : ''}
+              <p class="text-xs text-gray-500">Base de cálculo: <strong>${eur(r.baseInmo)}</strong> → comisión = <strong>${eur(r.gastoInmo)}</strong> (IVA incl.)</p>
             </div>
           ` : ''}
         </div>
@@ -1697,6 +1711,10 @@ function setCalc(key, value) {
     calcState.incluirInmo = value;
   } else {
     calcState[key] = value;
+  }
+  // Al activar "usar precio anunciado" por primera vez, prerrellena con el precio actual
+  if (key === 'usarPrecioAnunciado' && value && !num(calcState.precioAnunciado)) {
+    calcState.precioAnunciado = num(calcState.precio);
   }
   saveCalc();
   renderCalculadora();
